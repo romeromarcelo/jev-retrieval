@@ -1,0 +1,33 @@
+# Cargo build output
+/target
+debug/
+
+# rustfmt backup files
+**/*.rs.bk
+
+# MSVC debug info
+*.pdb
+
+# Secrets and local environment
+.env
+.env.*
+
+# Local jevr config for this repo (tool-under-test artifacts)
+.jevr.yaml
+
+# Downloaded benchmark datasets and run outputs (see benchmarks/README.md)
+/benchmarks/data/
+/benchmarks/corpora/
+/benchmarks/*.results.jsonl
+
+# Python tooling caches (benchmarks/ scripts)
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.venv/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

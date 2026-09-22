@@ -1,0 +1,10 @@
+{
+	"name": "jevr",
+	"displayName": "jevr — Semantic Code Search",
+	"version": "0.1.0",
+	"description": "Semantic codebase search for coding agents: the using-jevr skill teaches Claude to find code and documents by meaning with the jevr CLI, in place of grep+glob navigation.",
+	"author": { "name": "Marcelo Romero" },
+	"repository": "https://github.com/romeromarcelo/jev-retrieval",
+	"license": "Apache-2.0",
+	"keywords": ["search", "semantic", "grep", "code-search", "agent"]
+}

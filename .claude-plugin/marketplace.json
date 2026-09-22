@@ -1,0 +1,13 @@
+{
+	"name": "jevr",
+	"description": "Marketplace for the jevr semantic code search tool: Claude Code skill and plugin for grep-shaped, natural-language codebase navigation.",
+	"owner": { "name": "Marcelo Romero" },
+	"plugins": [
+		{
+			"name": "jevr",
+			"source": "./",
+			"description": "Semantic codebase search for coding agents: teaches Claude to find code and documents by meaning with the jevr CLI, in place of grep+glob navigation.",
+			"category": "development-tools"
+		}
+	]
+}

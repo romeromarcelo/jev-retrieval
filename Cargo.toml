@@ -1,0 +1,24 @@
+[package]
+name = "jevr"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Semantic code search for coding agents: find the code or document files matching a concept, described in plain language"
+license = "Apache-2.0"
+repository = "https://github.com/romeromarcelo/jev-retrieval"
+readme = "README.md"
+keywords = ["search", "semantic", "grep", "code-search", "agent"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/benchmarks/", "/skills/", "/.claude-plugin/", "/install.sh", "/docs/"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
+anyhow = "1"
+futures = "0.3"
+sha2 = "0.10"
