@@ -29,9 +29,11 @@ repository state — point it at any codebase *or* plain-text document corpus
 Ask *"where is the websocket reconnect logic?"* or *"how do I configure
 retry backoff?"* and get back a ranked list of files and line ranges, each
 with a calibrated relevance probability — ready to open at the right spot.
-That recipe scores **0.900** any-gold@10 on SWE-bench Lite file localization
-and beats published BM25 and cross-encoder baselines on BEIR, at roughly
-2 seconds and a cent per cold query ([benchmarks](#benchmarks)).
+That recipe scores **0.900** any-gold@10 on SWE-bench Lite file localization,
+beats published BM25 and cross-encoder baselines on BEIR, and places
+**2nd of 90 models** on the HAKARI-Bench NanoRTEB reranking leaderboard —
+ahead of every dedicated cross-encoder on the board — at roughly 2 seconds
+and a cent per cold query ([benchmarks](#benchmarks)).
 
 ## Demo
 
@@ -56,7 +58,8 @@ muscle memory, without steering or instructions.
   question sets so neither lane perturbs the other.
 - **No repository state.** The BM25 index is rebuilt per invocation
   (~1 s at repo scale); responses are cached under `~/.cache/jevr/`, so
-  repeated queries over unchanged code are instant and free.
+  repeated queries over unchanged code are instant and free — an agentic
+  search-edit-search loop pays only for the bytes that changed.
 - **Measured, not vibed.** Defaults are benchmark-derived operating points —
   [docs/BENCHMARKS.md](docs/BENCHMARKS.md) records the evidence and the
   ablations that were tested and rejected.
@@ -69,14 +72,42 @@ muscle memory, without steering or instructions.
 | Loc-Bench V1, Feature Request (30-sample) | any-gold@10 | 0.700 | multi-turn agent loops 0.675–0.834 (strict, full set) |
 | BEIR SciFact (300 queries) | nDCG@10 | **0.778** | BM25 0.665 · BM25+CE 0.688 · best zero-shot reranker 0.777 |
 | BEIR NFCorpus (323 queries) | nDCG@10 | 0.363 | BM25 0.325 · BM25+CE 0.350 · best zero-shot reranker **0.399** |
+| HAKARI-Bench NanoRTEB, Reranking (14 tasks, 2,390 queries) | nDCG@10 | **0.790** | **#2 of 90 leaderboard models** — #1 is an 8B embedder at 0.811 |
+| HAKARI-Bench NanoRTEB, Retrieval | nDCG@10 | 0.678 | #10 of 77 with `candidate_cap: 100` (0.604, #19 at defaults) · BM25 0.355 |
 
 On SciFact the pipeline edges past the best published zero-shot reranker
 number we could verify — at ~2 s per query where those systems report
 30–76 s. On NFCorpus it beats the BM25 and cross-encoder baselines but does
-**not** reach the LLM-reranker frontier. A single benchmark is never enough:
-protocols, caveats, and rejected ablations are in
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md), and the BEIR numbers are
-reproducible with the scripts in [benchmarks/](benchmarks/).
+**not** reach the LLM-reranker frontier.
+
+On [HAKARI-Bench](https://huggingface.co/spaces/hakari-bench/leaderboard)
+NanoRTEB — 14 specialized-domain retrieval tasks (legal, finance,
+healthcare, code) scored against the public leaderboard — jevr's
+verification-and-rerank stages place **second of 90 ranked models** when
+every system reranks the same fixed candidates, behind only an 8B embedding
+model and ahead of every dedicated cross-encoder (NanoHumanEval: gold
+solution ranked first on all 158 queries). Full-corpus retrieval is bounded
+by BM25 candidate recall on these vocabulary-divergent domains; a one-line
+`candidate_cap: 100` config overlay lifted **all 14 tasks** (mean +0.073)
+and is the measured recommendation for specialized corpora —
+[benchmarks/RTEB.md](benchmarks/RTEB.md) has the full story.
+
+That placement comes with an operating profile no other model on the board
+offers. Every ranked system carries corpus-side state — an embedding pass
+and vector index to build and keep in sync for the dense and
+late-interaction models, GPU serving for the cross-encoders — while jevr
+holds **no state at all between invocations**: Stage 1 rebuilds BM25 in
+memory each run, so a brand-new or just-edited corpus is searchable in
+seconds with zero setup. And the client-side response cache (keyed on
+request bytes, file content included, so it can never go stale) makes the
+repeat-heavy shape of agentic loops nearly free: a warm re-query measured
+**~0.1 s with zero billed requests**, and editing a file re-bills only the
+requests whose bytes actually changed.
+
+A single benchmark is never enough: protocols, caveats, and rejected
+ablations are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md), and the BEIR and
+NanoRTEB numbers are reproducible with the scripts and guides in
+[benchmarks/](benchmarks/).
 
 ## Installation
 

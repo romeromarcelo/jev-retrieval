@@ -1,7 +1,9 @@
 # Benchmarks — BEIR SciFact & NFCorpus
 
 Reproduce the document-retrieval numbers cited in the top-level README on two
-standard [BEIR](https://github.com/beir-cellar/beir) datasets.
+standard [BEIR](https://github.com/beir-cellar/beir) datasets. The
+HAKARI-Bench NanoRTEB results (leaderboard comparison, `candidate_cap`
+ablation) live in [RTEB.md](RTEB.md) with their own replication guide.
 
 ## Requirements
 

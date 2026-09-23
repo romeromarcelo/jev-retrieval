@@ -209,3 +209,67 @@ After the redesign, logged sessions showed first-try-valid invocations,
 unprompted iterative narrowing (repo → subtree → file) and threshold probing,
 and exit 1 correctly interpreted as "no confident match" — never as tool
 failure.
+
+## 8. External leaderboard: HAKARI-Bench NanoRTEB
+
+Run 2026-09-23 against the [HAKARI-Bench](https://github.com/hakari-bench/hakari-bench)
+NanoRTEB benchmark — 14 English specialized-domain tasks (legal, finance,
+healthcare, code), 2,390 judged queries per mode, corpora of 82–10,000
+documents — and compared against the public
+[leaderboard](https://huggingface.co/spaces/hakari-bench/leaderboard)
+(database snapshot of the same date; 77 ranked models in Retrieval mode, 90
+in Reranking). Protocol, per-task scores, and the replication guide are in
+[`benchmarks/RTEB.md`](../benchmarks/RTEB.md); the leaderboard's Borda/pool
+rules were validated to exact equality against its published tables before
+inserting jevr. All qrels graded, nDCG@10, single draw.
+
+| Run | Mean nDCG@10 | Borda | Leaderboard rank |
+|---|---|---|---|
+| Reranking (fixed RRF top-100 candidates) | **0.790** | 95.1 | **#2 of 90** |
+| Retrieval, defaults (`candidate_cap` 30) | 0.604 | 69.5 | #19 of 77 |
+| Retrieval, `candidate_cap: 100` overlay | 0.678 | 82.8 | #10 of 77 |
+
+Three findings:
+
+- **Verification + rerank is near the top of the field when recall is not
+  the constraint.** In Reranking mode jevr sits second only to an 8B
+  embedding model (Nemotron-3-Embed-8B, 0.811), ahead of every dedicated
+  cross-encoder on the board; NanoHumanEval reaches 1.000 with the gold
+  solution ranked first on all 158 queries (verified against the raw
+  rankings, not a scoring artifact).
+- **Full-corpus mode is bounded by Stage-1 lexical recall on these domains.**
+  NanoApps (8,754 code documents, problem-statement queries) scores 0.090 at
+  defaults vs 0.994 with oracle-quality candidates — the verifier is fine,
+  BM25's top-30 misses the gold. Raising `candidate_cap` to 100 improved
+  **all 14 tasks** (mean +0.073; largest where lexical overlap is worst:
+  AILAStatutes +0.225, HumanEval +0.126, MBPP +0.118) and moved jevr from
+  #19 to #10.
+- **The §5 candidate-depth rejection is workload-dependent, and the default
+  stands.** On BEIR, depth 100 realized only +0.011–0.014 because BM25's
+  top 30 already contained the gold; on NanoRTEB the same change buys
+  +0.073 because it often does not. The deeper pool costs ~3.3× requests
+  and stays behind the fixed-candidate ceiling (0.678 vs 0.790), so
+  `candidate_cap` stays 30 by default — changing it would also need the §2
+  code gates — and `candidate_cap: 100` via `--config` is the measured
+  recommendation for specialized corpora where query and document
+  vocabularies diverge (statutes, canonical code solutions, clinical text).
+- **jevr is the only stateless system on the board.** Every ranked model
+  carries corpus-side state before it can answer its first query: dense and
+  late-interaction models embed the entire corpus into a vector index that
+  must be rebuilt or resynced on every corpus change, and cross-encoders
+  need GPU serving plus an upstream retriever. jevr's Stage 1 rebuilds BM25
+  in memory per invocation and nothing is ever written into the searched
+  corpus — a fresh or freshly edited corpus is searchable immediately. Cold
+  latency stayed in the interactive band throughout: 2.9 s / 104 billed
+  requests on the heaviest task's pilot query (NanoAILACasedocs, 223 KB
+  documents), 1.8–2.2 s typical (§3).
+
+Latency and caching, measured during these runs: a warm repeat of a
+NanoDS1000 query (997-document corpus) replayed byte-identically in
+**0.1 s with 0 billed requests** — the sha256(request-body) cache embeds
+file content, so entries can never go stale and an agentic
+search-edit-search loop re-bills only requests whose input bytes changed.
+The same mechanism made the cap-100 re-run incremental: a byte-identical
+corpus rebuild replayed all shared verification requests free and billed
+only the newly admitted candidate slots. A fully cold two-mode pass is
+roughly 300K requests.
