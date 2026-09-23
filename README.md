@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <b>Find files by meaning, not by string matching.</b>
+  <b>Find files and content using Jev's calibrated decisions.</b>
 </p>
 
 <p align="center">
