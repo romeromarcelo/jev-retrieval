@@ -9,6 +9,8 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
+/// Every tunable in one place, deserialized with `deny_unknown_fields` so a
+/// typo in a YAML key fails loudly instead of silently keeping a default.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {

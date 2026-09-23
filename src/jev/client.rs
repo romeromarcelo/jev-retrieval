@@ -25,6 +25,8 @@ use std::time::Duration;
 const API_URL: &str = "https://api.typesafe.ai/v1/systemone";
 const MAX_RETRIES: u32 = 3;
 
+/// The single choke point every Jev request passes through: adds auth, the
+/// retry policy, and the sha256-keyed response cache.
 pub struct JevClient {
     http: reqwest::Client,
     key: String,
@@ -53,6 +55,8 @@ impl JevClient {
         Some(dir.join(format!("{hex}.json")))
     }
 
+    /// POST one System One request, serving byte-identical bodies from the
+    /// cache and retrying only transient failures (3×, 408/429/5xx).
     pub async fn system_one<S: Serialize>(&self, body: &JevRequest<S>) -> Result<JevResponse> {
         let body_json = serde_json::to_string(body)?;
         let cache_file = self.cache_path(&body_json);

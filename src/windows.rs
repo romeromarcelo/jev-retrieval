@@ -8,12 +8,19 @@
 //! regardless of batch size (docs/BENCHMARKS.md), which is what makes full
 //! request-level concurrency effective.
 
+/// Lines per verification window.
 pub const WINDOW: usize = 100;
+/// Lines shared between adjacent windows, so a match straddling one boundary
+/// lands whole inside the neighbor.
 pub const OVERLAP: usize = 20;
+/// Hard byte cap for a single window (UTF-8-safe split of minified files).
 pub const MAX_WINDOW_BYTES: usize = 12_000;
+/// Measured request envelope: max source bytes per request (docs/BENCHMARKS.md).
 pub const MAX_REQUEST_SOURCE_BYTES: usize = 24_000;
+/// Measured request envelope: max windows per request (docs/BENCHMARKS.md).
 pub const MAX_WINDOWS_PER_REQUEST: usize = 24;
 
+/// One verification window: 1-based line range plus its text.
 #[derive(Clone)]
 pub struct CodeWindow {
     pub start: usize,

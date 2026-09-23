@@ -1,13 +1,13 @@
 [package]
 name = "jevr"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.88"
 description = "Semantic code search for coding agents: find the code or document files matching a concept, described in plain language"
 license = "Apache-2.0"
 repository = "https://github.com/romeromarcelo/jev-retrieval"
 readme = "README.md"
-keywords = ["search", "semantic", "grep", "code-search", "agent"]
+keywords = ["search", "semantic", "jev", "code-search", "agent"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = ["/benchmarks/", "/skills/", "/.claude-plugin/", "/install.sh", "/docs/", "/CLAUDE.md"]
 

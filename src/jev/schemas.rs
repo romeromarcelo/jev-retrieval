@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// One POST body: a shared `state`, the pinned `model`, and named typed
+/// questions evaluated independently against that state.
 #[derive(Serialize)]
 pub struct JevRequest<S: Serialize> {
     pub state: S,
@@ -33,6 +35,8 @@ pub enum Question {
     },
 }
 
+/// Boundary clarifications attached to a Noul: what a true and a false
+/// answer are each supposed to mean.
 #[derive(Serialize)]
 pub struct NoulCriteria {
     /// Wire keys are the literal strings "true"/"false".
@@ -42,6 +46,7 @@ pub struct NoulCriteria {
     pub false_means: String,
 }
 
+/// Top-level response: answers keyed by question name, plus billed usage.
 #[derive(Deserialize)]
 pub struct JevResponse {
     pub model: String,
@@ -70,6 +75,7 @@ pub enum Answer {
     },
 }
 
+/// Billed token counts for one request.
 #[derive(Deserialize)]
 pub struct Usage {
     pub input_tokens: u64,

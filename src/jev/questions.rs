@@ -17,6 +17,8 @@
 use super::schemas::{NoulCriteria, Question};
 use std::collections::BTreeMap;
 
+/// Per-window code Noul: subsystem membership of one window, dedicated
+/// supporting code included.
 pub fn window_membership(window_index: usize) -> Question {
     Question::Noul {
         instructions: format!(
@@ -29,6 +31,8 @@ pub fn window_membership(window_index: usize) -> Question {
     }
 }
 
+/// File-level code Noul over all windows shown; averaged into the file score
+/// alongside the per-window questions to cut flicker.
 pub fn file_membership() -> Question {
     Question::Noul {
         instructions: "Considering all windows shown, is the file at `file` part of the \
@@ -50,6 +54,8 @@ fn membership_criteria() -> NoulCriteria {
     }
 }
 
+/// Per-window document Noul: the coverage phrasing, which never calls prose
+/// "code" (see the module docs for the measured separation).
 pub fn doc_window_membership(window_index: usize) -> Question {
     Question::Noul {
         instructions: format!(
@@ -62,6 +68,8 @@ pub fn doc_window_membership(window_index: usize) -> Question {
     }
 }
 
+/// File-level document Noul over all windows shown, mirroring
+/// [`file_membership`] for the document lane.
 pub fn doc_file_membership() -> Question {
     Question::Noul {
         instructions: "Considering all windows shown, is the document at `file` part of the \

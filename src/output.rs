@@ -9,6 +9,8 @@
 use crate::verify::FileVerdict;
 use std::io::{self, Write};
 
+/// Output mode selected by CLI flags: Read-ready `path:start-end  score`
+/// lines by default, capped snippet bodies, or full JSON verdicts.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Mode {
     PathsOnly,

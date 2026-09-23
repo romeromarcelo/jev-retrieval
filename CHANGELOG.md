@@ -8,6 +8,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-23
+
+### Added
+
+- API documentation for every public item (module declarations, request
+  windowing constants, wire-format types, question builders, client entry
+  points), completing docs.rs coverage of the public surface.
+
+### Changed
+
+- crates.io keywords: replaced `grep` with `jev` so the crate surfaces on the
+  ecosystem keyword page; the grep-shaped interface remains described in the
+  crate description and README.
+
 ## [0.1.0] - 2026-09-22
 
 First public release, published to [crates.io](https://crates.io/crates/jevr).

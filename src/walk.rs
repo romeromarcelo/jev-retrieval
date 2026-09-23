@@ -12,6 +12,8 @@ use anyhow::Result;
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
 
+/// Dependency and build-output directories pruned unconditionally — they
+/// dominate raw file counts even outside git repos, where no gitignore applies.
 pub const SKIP_DIRS: &[&str] = &[
     ".git",
     ".next",
@@ -73,12 +75,15 @@ pub fn searchable_files(root: &Path, include_hidden: bool) -> Result<Vec<PathBuf
     Ok(files)
 }
 
+/// Whether `path`'s final component is one of [`SKIP_DIRS`].
 pub fn is_skipped_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| SKIP_DIRS.contains(&name))
 }
 
+/// Extensions searched as source code (`FileKind::Code`), verified with the
+/// subsystem-membership question set rather than the document coverage one.
 pub fn is_code_extension(extension: &std::ffi::OsStr) -> bool {
     matches!(
         extension.to_str(),
