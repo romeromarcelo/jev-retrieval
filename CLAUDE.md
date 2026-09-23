@@ -88,4 +88,5 @@ evidence record is `docs/BENCHMARKS.md`; the BEIR gates are reproducible via
 ## Repository facts
 
 - `docs/BENCHMARKS.md` is the evidence record; append new experiment evidence there as numbered sections rather than creating new documents.
+- `docs/GUIDE.md` is the contributor-facing technical reference (pipeline internals, configuration rationale, cache/cost, development invariants) — keep it consistent with the invariants above.
 - `benchmarks/` holds the reproducible BEIR harness; `skills/` + `.claude-plugin/` ship the Claude Code skill and plugin (`./install.sh`).
