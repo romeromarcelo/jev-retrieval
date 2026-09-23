@@ -9,7 +9,7 @@ repository = "https://github.com/romeromarcelo/jev-retrieval"
 readme = "README.md"
 keywords = ["search", "semantic", "grep", "code-search", "agent"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["/benchmarks/", "/skills/", "/.claude-plugin/", "/install.sh", "/docs/"]
+exclude = ["/benchmarks/", "/skills/", "/.claude-plugin/", "/install.sh", "/docs/", "/CLAUDE.md"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
