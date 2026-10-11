@@ -338,3 +338,14 @@ billed exactly the 2 rerank requests in both versions.
   2.6 s to 24.8 s.
 - **Thin LTO:** no gain.
 - **Parallel walk:** −15 ms only, and it changes how walk errors propagate.
+- **The unused rustls stack was removed instead.** It was compiled in but
+  never selected, because reqwest chooses native-tls whenever its default TLS
+  feature is on. The binary is 21% smaller and TLS behavior is unchanged.
+- **Switching the TLS backend:** measured with a cold burst of 32 concurrent
+  requests and with client construction time. native-tls stays.
+  - HTTP/2, via native-tls ALPN or rustls, did not lower latency: medians of
+    464–493 ms for all four setups, with overlapping ranges.
+  - rustls with its bundled Mozilla roots peaked about 3 MB lower, but it
+    ignores the OS trust store, so corporate TLS-inspection CAs would fail.
+  - rustls with OS roots takes 119 ms to build the client on every
+    invocation, against 3 ms for native-tls.
