@@ -3,8 +3,10 @@
 //! Why async: server latency is 0.3–0.8 s per request regardless of size, so
 //! wall time is dominated by how many requests fly at once —
 //! `buffer_unordered(concurrency)` turns a serial ~27 s scan into a ~2 s one.
-//! The retry policy (3×, exponential from 250 ms, only 408/429/5xx) matches
-//! the observed ~1-in-40 transient failure rate.
+//! The retry policy (up to 3 retries, exponential from 250 ms, on transport
+//! errors and 408/429/5xx) matches the observed ~1-in-40 transient failure
+//! rate; the read timeout turns a stalled connection into such an error
+//! instead of a hang.
 //!
 //! Why a client-side response cache: TypeSafe offers no server-side prompt caching
 //! or repeated-state discount — resending an identical state is billed in full
@@ -24,6 +26,12 @@ use std::time::Duration;
 
 const API_URL: &str = "https://api.typesafe.ai/v1/systemone";
 const MAX_RETRIES: u32 = 3;
+/// Idle limit per socket read, reset by every successful read. It bounds
+/// every stall mode measured against mock servers (unroutable connect, silent
+/// server, stalled body, unread upload) without cutting a slow but
+/// progressing response, which a total timeout would. 10 s is the official
+/// SDKs' per-operation default and >10× the slowest response observed (0.74 s).
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The single choke point every Jev request passes through: adds auth, the
 /// retry policy, and the sha256-keyed response cache.
@@ -37,7 +45,10 @@ impl JevClient {
     /// `cache_dir = None` disables the response cache entirely.
     pub fn new(key: String, cache_dir: Option<PathBuf>) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .read_timeout(READ_TIMEOUT)
+                .build()
+                .expect("TLS backend or system resolver failed to initialize"),
             key,
             cache_dir,
         }
@@ -56,7 +67,8 @@ impl JevClient {
     }
 
     /// POST one System One request, serving byte-identical bodies from the
-    /// cache and retrying only transient failures (3×, 408/429/5xx).
+    /// cache and retrying only transient failures (up to 3 retries on transport
+    /// errors, timeouts included, and 408/429/5xx).
     pub async fn system_one<S: Serialize>(&self, body: &JevRequest<S>) -> Result<JevResponse> {
         let body_json = serde_json::to_string(body)?;
         let cache_file = self.cache_path(&body_json);

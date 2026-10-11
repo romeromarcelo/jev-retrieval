@@ -93,9 +93,12 @@ The tool speaks raw HTTP (`jev/client.rs`) — no Rust SDK exists — through a
 hand-rolled serde mirror (`jev/schemas.rs`) of the System One wire format,
 captured byte-for-byte from the official Python SDK's debug logs.
 `tests/wire.rs` replays those captured bodies as golden tests; any
-request/response shape change must extend them. Retry policy: 3 attempts,
-exponential backoff from 250 ms, only on 408/429/5xx — matching the observed
-~1-in-40 transient failure rate.
+request/response shape change must extend them. Retry policy: up to 3
+retries, exponential backoff from 250 ms, on transport errors and
+408/429/5xx — matching the observed ~1-in-40 transient failure rate. A 10 s
+read timeout (per socket read, the official SDKs' default) turns a stalled
+connection into a retried transport error instead of a hang; a stall after
+the response headers fails that request without a retry.
 
 ## Configuration reference
 
