@@ -163,6 +163,11 @@ re-proposing any of them.
   0.17–0.33 on NFCorpus. Assessment: NFCorpus ~0.399 is unreachable for this
   pipeline zero-shot with the pinned judge; the systems that reach ~0.397+
   are either distillation-trained or pay 60–76 s/query.
+- **Cheaper question text and content-anchored windows** were measured
+  without being implemented (§10). Neither saves more than fractions of a
+  cent per query, and both would change calibrated behavior.
+- **A packed SQLite response cache** was prototyped (§10). It shrinks the
+  cache's disk use 13.75× but adds 1.7 MB of peak memory and 1.9 MB of binary.
 
 ## 6. Lane separation evidence
 
@@ -349,3 +354,150 @@ billed exactly the 2 rerank requests in both versions.
     ignores the OS trust store, so corporate TLS-inspection CAs would fail.
   - rustls with OS roots takes 119 ms to build the client on every
     invocation, against 3 ms for native-tls.
+
+## 10. Token, re-billing, timeout and cache suggestions
+
+Four suggestions were tested on 2026-10-11 for $0.06 of API usage in total.
+Two changes were adopted: an HTTP read timeout, and refreshing a cache
+entry's modification time on a hit so that pruning by age is safe. Token counts come from the responses'
+`usage.input_tokens`, which was identical across repeated requests. "Free"
+means a cache replay with an invalid API key and 0 network requests.
+
+### Shorter question text: not adopted
+
+Billed input tokens per question, measured by adding and removing questions
+over a fixed state:
+
+| Billed item | Code lane | Document lane |
+|---|---|---|
+| Window question (instruction and criteria) | 114 | 109 |
+| ... of which the criteria | 59 | 55 |
+| File question (asked twice per request) | 93 | 89 |
+| Question key | 0 (keys are not billed) | 0 |
+| State `id` field, per window | 10 | 10 |
+
+- **Share of the bill.** Question text is 19% of a 1-window code request
+  (3.5 KB window), 12% of a full 6-window code request (7,054 tokens), 29% of
+  a typical BEIR document request and 38% of a 0.5 KB document. Across the 487k verification responses in the author's
+  cache, it is 17.2% of 1.0 B billed tokens: 8.2% for window questions and
+  9.0% for the file-question pair.
+- **Shorter instructions** save at most about 2% of tokens, and dropping the
+  state `id` field less than 1.3%. Neither justifies invalidating every
+  cached response.
+- **Dropping the file-question pair** from 1-window requests would save about
+  18% of their tokens but changes results. Replayed over 388k cached 1-window
+  responses, it loses 6.9% of the files kept at the 0.90 code threshold and
+  18.8% at the 0.60 document threshold. Choosing one file question instead of
+  the other flips only 0.05% and 0.31% of decisions.
+- **Dropping the criteria in the document lane** would save about 17% of a
+  BEIR document request. It failed a paired screen of 549 BEIR (query,
+  document) pairs taken from the baseline top-10, where each request carried
+  the production questions, an identical copy of them (the draw-noise floor)
+  and the criteria-free set:
+  - The criteria-free score moved 0.061 on average, against 0.006 for the
+    copy. It rose by 0.059 on average, more for non-relevant documents.
+  - It agreed with production at the 0.60 threshold 94.5% of the time,
+    against 99.8% for the copy, and kept 11% more documents.
+  - Pooled AUC changed by −0.0065 (95% CI −0.015 to +0.002).
+
+  The criteria carry the document threshold's calibration. In the code lane
+  the same change would save 6.7% of a 6-window request and 11.4% of a
+  1-window one. It was not screened there, because the code criteria spell
+  out the "dedicated supporting code" boundary behind the measured phrasing
+  (§4).
+
+### Content-anchored windows: not adopted
+
+The concern was that windows sit at fixed line offsets, so one inserted line
+re-bills the whole file. A simulation with jevr's own windowing code replayed
+1,813 file edits from the last 200 commits of four repositories (this one,
+tsai-rs, cross-market-arb and Django), without API calls.
+
+- An edit re-bills 80% of the edited file's cold cost, and 100% for files
+  that fit in one request (38% of edits). The concern is real.
+- A scheme that re-billed only the windows touching changed lines would cut
+  those bytes by 78%. In money this is about 16k tokens per edited file:
+  $0.0007 on average, $0.0002 median, $0.0015 at p90.
+- Any such scheme must drop line numbers from the request state and replace
+  the measured 100/20 windowing, which means re-running both gates. That is
+  not worth fractions of a cent per edit.
+
+### HTTP read timeout: adopted
+
+The HTTP client set no timeouts, so a stalled connection could hang a query
+forever. Local mock servers reproduced each stall mode against jevr's exact
+reqwest build (0.12.28):
+
+| Stall mode | No timeout (0.2.0) | `connect_timeout` | `read_timeout` | Total `timeout` |
+|---|---|---|---|---|
+| Unroutable address | hangs | ends | ends | ends |
+| Server accepts and never answers | hangs | hangs | ends | ends |
+| Server reads the request and never answers | hangs | hangs | ends | ends |
+| Headers sent, then the body stalls | hangs | hangs | ends | ends |
+| Upload never read (100 KB and 8 MB) | hangs | hangs | ends | ends |
+| Slow but steadily progressing response | completes | completes | completes | cut |
+
+- **`read_timeout` alone ends every stall** without cutting a response that
+  is still progressing. It is set to 10 s, the official SDKs' per-operation
+  default.
+- **10 s is far above real latency.** The slowest response measured was
+  0.74 s. A burst of 32 concurrent 24 KB requests had a median of 0.42 s and
+  a maximum of 0.54 s, and a 60-option rerank took 0.43 s.
+- **Timeouts are retried.** A timeout surfaces as a transport error, so a
+  request that stalls on every attempt now fails after about 42 s (4 attempts
+  plus backoff) with a warning, and the rest of the query continues. A stall
+  after the response headers fails that request without a retry, as any body
+  error already did.
+- **End to end,** through a proxy that never answers, jevr 0.2.0 was still
+  hanging after 75 s. The new build exited after 42.05 s with a warning.
+- **Requests are unchanged.** Warm replays of 3 code queries and all 623 BEIR
+  queries were byte-identical to 0.2.0, with 0 network requests (nDCG@10
+  0.778 / 0.363).
+
+### Cache disk usage: touch on hit adopted, packed store not adopted
+
+The author's cache held 496,888 entries: 110 MB of content taking 2.04 GB on
+disk, because every file occupies at least one 4 KiB block on APFS (ext4
+behaves the same; btrfs stores files this small inline). Nothing was ever
+evicted.
+
+A packed SQLite store was prototyped in Python and in Rust. It used bundled
+SQLite in WAL mode, a 32-byte key as the primary key, and a fallback that
+reads the old per-file entries.
+
+| Measure | Files (0.2.0) | SQLite store |
+|---|---|---|
+| Disk for 496,888 entries | 2.04 GB | 148 MB (13.75× smaller) |
+| Lookup, page cache warm (p50) | 15.5 µs | 4.5 µs |
+| Write (p50) | 275 µs | 31.5 µs |
+| Release binary | 6.67 MB | 8.53 MB (+1.87 MB) |
+| Peak RSS, warm query | 12.4–12.6 MB | 14.1–14.4 MB (+1.65–1.77 MB) |
+| Warm query (median of 20) | 32.7–35.0 ms | 34.8–36.1 ms |
+| 14 concurrent writer processes | – | 0 busy errors, 0 lost writes |
+
+- **The packed store is not adopted.** It costs 1.7 MB of peak memory on a
+  12.5 MB process and 1.9 MB of binary.
+  - Linking the system SQLite instead adds only 0.07 MB of binary and 0.7 MB
+    of memory, but a `cargo install` on Linux would then need the SQLite
+    library installed.
+  - The store also frees no disk until the old files are deleted, and one
+    corrupt database file would affect every entry.
+- **Pruning by age is the remedy, but only if "age" means last use.** With
+  modification time meaning write time, `-mtime +14` would have deleted
+  446,767 entries (1.83 GB), including every entry from the 2026-09-23
+  benchmark day, whether or not those entries were still being replayed.
+- **The touch costs nothing measurable at once-a-day granularity.** Cost per
+  cache hit, over 12,000–15,000 cached files with the page cache warm:
+
+  | Variant | Per hit |
+  |---|---|
+  | Read only (0.2.0) | 11.9–13.6 µs |
+  | Read, then reopen for writing and touch | 47 µs |
+  | Touch through the open read handle | 34–39 µs |
+  | Touch only when last touched over a day ago (adopted) | 12.9–13.6 µs |
+
+  With the adopted variant, warm queries gave identical output in 60 of 60
+  runs, and their median time moved by −0.05 to +0.33 ms on ~30 ms. Every
+  stale entry was refreshed, a same-day repeat hit wrote nothing, and the
+  BEIR replays stayed byte-identical. The prune command is documented in
+  docs/GUIDE.md and never runs automatically.
