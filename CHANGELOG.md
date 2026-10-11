@@ -8,6 +8,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-11
+
+### Changed
+
+- A cache hit refreshes the entry's modification time (at most once a day),
+  so `find ~/.cache/jevr -name '*.json' -mtime +N -delete` prunes only entries
+  unused for N days (docs/GUIDE.md). Output and cache keys are unchanged, and
+  warm-query latency is unchanged within noise.
+
+### Fixed
+
+- A stalled connection could hang a query indefinitely because the HTTP client
+  set no timeouts. A 10 s read timeout (per socket read, the official SDKs'
+  default) now ends every stall, and the request is retried like any other
+  transport error. Request bodies and cache keys are unchanged.
+
 ## [0.2.0] - 2026-10-11
 
 ### Changed
@@ -71,7 +87,8 @@ First public release, published to [crates.io](https://crates.io/crates/jevr).
   record (`docs/BENCHMARKS.md`): 0.900 any-gold@10 on SWE-bench Lite file
   localization, nDCG@10 0.778 on BEIR SciFact and 0.363 on NFCorpus.
 
-[Unreleased]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/romeromarcelo/jev-retrieval/releases/tag/v0.1.0
