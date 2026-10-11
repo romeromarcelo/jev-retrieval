@@ -16,6 +16,10 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// One scanned document: path, token count, and per-vocabulary-term counts.
+type Scanned = (String, u64, Vec<u32>);
 
 /// One BM25-indexed corpus: postings by term plus per-doc lengths.
 pub struct Bm25Index {
@@ -24,7 +28,7 @@ pub struct Bm25Index {
     paths: Vec<String>,
     doc_len: Vec<f64>,
     avgdl: f64,
-    /// term → (doc id, term frequency); built once, queried per variant.
+    /// query term → (doc id, term frequency); built once, queried per variant.
     postings: HashMap<String, Vec<(u32, u32)>>,
 }
 
@@ -32,40 +36,88 @@ impl Bm25Index {
     /// Read and index every walked file (repo-relative paths, path tokens
     /// included in the document). Unreadable/non-UTF-8 files are skipped with
     /// a warning, never fatal — they simply drop out of the candidate pool.
-    pub fn build_from_files(root: &Path, walked: &[PathBuf], k1: f64, b: f64) -> Self {
-        let docs = walked.iter().filter_map(|abs| {
-            let rel = abs
-                .strip_prefix(root)
-                .unwrap_or(abs)
-                .to_string_lossy()
-                .into_owned();
-            match std::fs::read_to_string(abs) {
-                Ok(content) => Some((rel, content)),
-                Err(_) => {
-                    eprintln!("jevr: skipping unreadable {rel}");
-                    None
-                }
-            }
+    /// Reading + tokenizing dominates Stage 1, so files are scanned on every
+    /// core; results merge in walk order, identical to a serial build.
+    pub fn build_from_files(
+        root: &Path,
+        walked: &[PathBuf],
+        k1: f64,
+        b: f64,
+        queries: &[String],
+    ) -> Self {
+        let vocabulary = vocabulary(queries);
+        let next = AtomicUsize::new(0);
+        let threads = std::thread::available_parallelism().map_or(1, usize::from);
+        let mut scanned: Vec<(usize, Result<Scanned, String>)> = std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..threads.min(walked.len()))
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut done = Vec::new();
+                        loop {
+                            let i = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(abs) = walked.get(i) else {
+                                return done;
+                            };
+                            let rel = abs
+                                .strip_prefix(root)
+                                .unwrap_or(abs)
+                                .to_string_lossy()
+                                .into_owned();
+                            let doc = match std::fs::read_to_string(abs) {
+                                Ok(content) => Ok(scan(rel, &content, &vocabulary)),
+                                Err(_) => Err(rel),
+                            };
+                            done.push((i, doc));
+                        }
+                    })
+                })
+                .collect();
+            workers
+                .into_iter()
+                .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+                .collect()
         });
-        Self::build(docs, k1, b)
+        scanned.sort_unstable_by_key(|&(i, _)| i);
+        let docs = scanned.into_iter().filter_map(|(_, doc)| {
+            doc.inspect_err(|rel| eprintln!("jevr: skipping unreadable {rel}"))
+                .ok()
+        });
+        Self::assemble(docs, &vocabulary, k1, b)
     }
 
     /// Index (path, content) documents: tokenize content + path, store
     /// postings and lengths. Eager and exact — no fieldnorm compression.
-    pub fn build(docs: impl Iterator<Item = (String, String)>, k1: f64, b: f64) -> Self {
+    /// Every token counts toward document length, but postings are kept only
+    /// for the terms of `queries` — the index is rebuilt per invocation and
+    /// [`Bm25Index::top`] is only ever asked those queries, so a full-vocabulary
+    /// index would only cost Stage 1 time and memory.
+    pub fn build(
+        docs: impl Iterator<Item = (String, String)>,
+        k1: f64,
+        b: f64,
+        queries: &[String],
+    ) -> Self {
+        let vocabulary = vocabulary(queries);
+        let docs = docs.map(|(path, content)| scan(path, &content, &vocabulary));
+        Self::assemble(docs, &vocabulary, k1, b)
+    }
+
+    /// Postings and lengths from scanned documents, doc ids in iteration order.
+    fn assemble(
+        docs: impl Iterator<Item = Scanned>,
+        vocabulary: &[String],
+        k1: f64,
+        b: f64,
+    ) -> Self {
         let mut paths = Vec::new();
         let mut doc_len = Vec::new();
         let mut postings: HashMap<String, Vec<(u32, u32)>> = HashMap::new();
-        for (path, content) in docs {
+        for (path, len, tf) in docs {
             let doc = paths.len() as u32;
-            let mut tf: HashMap<String, u32> = HashMap::new();
-            let mut len = 0u64;
-            for token in tokenize(&content).into_iter().chain(tokenize(&path)) {
-                *tf.entry(token).or_insert(0) += 1;
-                len += 1;
-            }
-            for (term, count) in tf {
-                postings.entry(term).or_default().push((doc, count));
+            for (term, &count) in vocabulary.iter().zip(&tf) {
+                if count > 0 {
+                    postings.entry(term.clone()).or_default().push((doc, count));
+                }
             }
             paths.push(path);
             doc_len.push(len as f64);
@@ -117,6 +169,30 @@ impl Bm25Index {
     }
 }
 
+/// Sorted, deduplicated tokens of every query: the only indexed terms.
+fn vocabulary(queries: &[String]) -> Vec<String> {
+    let mut terms: Vec<String> = queries.iter().flat_map(|q| tokenize(q)).collect();
+    terms.sort_unstable();
+    terms.dedup();
+    terms
+}
+
+/// Tokenize one document (content + path): every token counts toward its
+/// length; only `vocabulary` terms are counted individually.
+fn scan(path: String, content: &str, vocabulary: &[String]) -> Scanned {
+    let mut tf = vec![0u32; vocabulary.len()];
+    let mut len = 0u64;
+    let mut observe = |token: &str| {
+        if let Some(term) = vocabulary.iter().position(|t| t == token) {
+            tf[term] += 1;
+        }
+        len += 1;
+    };
+    for_each_token(content, &mut observe);
+    for_each_token(&path, &mut observe);
+    (path, len, tf)
+}
+
 /// Code-aware tokenizer: split on non-alphanumerics (Unicode-aware, so accented
 /// and non-Latin prose survives instead of fragmenting), then split identifiers
 /// on `_` and camelCase boundaries (acronym runs preserved: `HTTPResponse` →
@@ -125,59 +201,82 @@ impl Bm25Index {
 /// `sendcampaign` queries. Pure numbers and >40-byte blobs are dropped.
 pub fn tokenize(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
+    for_each_token(text, |token| tokens.push(token.to_owned()));
+    tokens
+}
+
+/// Allocation-free core of [`tokenize`]: calls `emit` with each token in
+/// order. Stage 1 tokenizes every walked file, so per-token `String`s would
+/// dominate its cost.
+pub fn for_each_token(text: &str, mut emit: impl FnMut(&str)) {
+    let mut lower = String::new();
     for word in text.split(|c: char| !c.is_alphanumeric() && c != '_') {
         if word.is_empty() || word.len() > 40 {
             continue;
         }
-        let before = tokens.len();
+        let mut runs = 0;
         for part in word.split('_') {
-            camel_split(part, &mut tokens);
+            camel_split(part, |run| {
+                emit(lowercase(run, &mut lower));
+                runs += 1;
+            });
         }
-        if tokens.len() > before + 1 && word.chars().any(char::is_alphabetic) {
-            tokens.push(word.to_lowercase());
+        if runs > 1 && word.chars().any(char::is_alphabetic) {
+            emit(lowercase(word, &mut lower));
         }
     }
-    tokens
 }
 
-/// Push the camelCase runs of one `_`-free part: uppercase-acronym runs,
+/// Emit the camelCase runs of one `_`-free part: uppercase-acronym runs,
 /// Capitalized words, lowercase runs, digit runs. Pure-digit runs are dropped.
-fn camel_split(part: &str, out: &mut Vec<String>) {
-    let chars: Vec<char> = part.chars().collect();
+/// Indices are byte offsets of chars in `part`.
+fn camel_split(part: &str, mut push: impl FnMut(&str)) {
     let mut start = 0;
-    let mut index = 0;
-    while index < chars.len() {
-        let c = chars[index];
-        let boundary = index > start
-            && (
-                // lower/digit → Upper starts a new word
-                (c.is_ascii_uppercase() && !chars[index - 1].is_ascii_uppercase())
-                // acronym run ends before its last Upper + lower ("HTTPServer")
-                || (c.is_ascii_lowercase()
-                    && chars[index - 1].is_ascii_uppercase()
-                    && index - 1 > start)
-                // letter ↔ digit boundary
-                || (c.is_ascii_digit() != chars[index - 1].is_ascii_digit())
-            );
-        if boundary {
-            let end = if c.is_ascii_lowercase() && chars[index - 1].is_ascii_uppercase() {
-                index - 1
-            } else {
-                index
-            };
-            push_run(&chars[start..end], out);
-            start = end;
+    let mut prev: Option<(usize, char)> = None;
+    for (index, c) in part.char_indices() {
+        if let Some((prev_index, p)) = prev {
+            let boundary = index > start
+                && (
+                    // lower/digit → Upper starts a new word
+                    (c.is_ascii_uppercase() && !p.is_ascii_uppercase())
+                    // acronym run ends before its last Upper + lower ("HTTPServer")
+                    || (c.is_ascii_lowercase() && p.is_ascii_uppercase() && prev_index > start)
+                    // letter ↔ digit boundary
+                    || (c.is_ascii_digit() != p.is_ascii_digit())
+                );
+            if boundary {
+                let end = if c.is_ascii_lowercase() && p.is_ascii_uppercase() {
+                    prev_index
+                } else {
+                    index
+                };
+                push_run(&part[start..end], &mut push);
+                start = end;
+            }
         }
-        index += 1;
+        prev = Some((index, c));
     }
-    push_run(&chars[start..], out);
+    push_run(&part[start..], &mut push);
 }
 
-fn push_run(run: &[char], out: &mut Vec<String>) {
-    if run.is_empty() || run.iter().all(|c| c.is_ascii_digit()) {
+fn push_run(run: &str, push: &mut impl FnMut(&str)) {
+    if run.is_empty() || run.bytes().all(|b| b.is_ascii_digit()) {
         return;
     }
-    out.push(run.iter().collect::<String>().to_lowercase());
+    push(run);
+}
+
+/// `text.to_lowercase()` into a reused buffer; ASCII text (nearly every
+/// token) is lowercased in place, byte-identical to `to_lowercase`.
+fn lowercase<'a>(text: &str, buffer: &'a mut String) -> &'a str {
+    buffer.clear();
+    if text.is_ascii() {
+        buffer.push_str(text);
+        buffer.make_ascii_lowercase();
+    } else {
+        buffer.push_str(&text.to_lowercase());
+    }
+    buffer
 }
 
 #[cfg(test)]
@@ -226,9 +325,10 @@ mod tests {
             ("fees.py".into(), "def taker_fee(): pass".into()),
             ("misc.py".into(), "unrelated content entirely".into()),
         ];
-        let index = Bm25Index::build(docs.into_iter(), 1.2, 0.75);
-        assert_eq!(index.top("kelly criterion bet size", 2), vec!["kelly.py"]);
-        assert!(index.top("zzz-no-such-term", 30).is_empty());
+        let queries = ["kelly criterion bet size".into(), "zzz-no-such-term".into()];
+        let index = Bm25Index::build(docs.into_iter(), 1.2, 0.75, &queries);
+        assert_eq!(index.top(&queries[0], 2), vec!["kelly.py"]);
+        assert!(index.top(&queries[1], 30).is_empty());
     }
 
     #[test]
@@ -237,10 +337,8 @@ mod tests {
             ("src/circuit_breaker.py".into(), "x = 1".into()),
             ("src/other.py".into(), "y = 2".into()),
         ];
-        let index = Bm25Index::build(docs.into_iter(), 1.2, 0.75);
-        assert_eq!(
-            index.top("circuit breaker", 30),
-            vec!["src/circuit_breaker.py"]
-        );
+        let queries = ["circuit breaker".into()];
+        let index = Bm25Index::build(docs.into_iter(), 1.2, 0.75, &queries);
+        assert_eq!(index.top(&queries[0], 30), vec!["src/circuit_breaker.py"]);
     }
 }

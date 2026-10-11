@@ -57,7 +57,7 @@ muscle memory, without steering or instructions.
 - **Code and documents in one tool**, verified by separate calibrated
   question sets so neither lane perturbs the other.
 - **No repository state.** The BM25 index is rebuilt per invocation
-  (~1 s at repo scale); responses are cached under `~/.cache/jevr/`, so
+  (~0.2 s for a 4k-file repo); responses are cached under `~/.cache/jevr/`, so
   repeated queries over unchanged code are instant and free — an agentic
   search-edit-search loop pays only for the bytes that changed.
 - **Measured, not vibed.** Defaults are benchmark-derived operating points —
@@ -208,7 +208,7 @@ silence.
 
 ## How it works
 
-1. **Stage 1 — candidates (local, ~1 s, free).** A gitignore-aware walk
+1. **Stage 1 — candidates (local, ~0.2 s, free).** A gitignore-aware walk
    feeds an in-memory BM25 index with a code-aware tokenizer; the top files
    per lane are unioned with `git grep` hits. Nothing is persisted.
 2. **Stage 2 — verification (Jev, concurrent, ~2 s).** Every candidate is

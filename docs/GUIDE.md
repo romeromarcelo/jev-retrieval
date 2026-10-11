@@ -42,7 +42,9 @@ free; Stages 2–3 call the TypeSafe Jev API.
   literal-vocabulary queries whose exact terms appear verbatim but rank
   poorly under BM25. Order is irrelevant: Stage 2 re-scores every candidate
   independently. Nothing is persisted; the index is rebuilt per invocation
-  (~1 s at repo scale). `--candidates <file>` bypasses the whole stage.
+  (~0.2 s for a 4k-file repo: files are scanned on every core, postings are
+  kept only for query terms, and `git grep` runs in the background).
+  `--candidates <file>` bypasses the whole stage.
 
 ### Stage 2 — verification (Jev, concurrent)
 

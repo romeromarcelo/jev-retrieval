@@ -207,6 +207,17 @@ fn run(args: Args) -> Result<bool> {
             .map(String::from)
             .collect()
     } else {
+        let variants = expansion::variants(&args.query, &args.keywords);
+        // git grep runs in the background while the walk and BM25 scan proceed.
+        let grep = config.git_grep_union.then(|| {
+            let grep_keywords: Vec<String> = variants
+                .iter()
+                .flat_map(|v| v.split(','))
+                .map(|k| k.trim().to_owned())
+                .filter(|k| !k.is_empty())
+                .collect();
+            candidates::spawn_git_grep(&root, grep_keywords)
+        });
         let walked = walk::searchable_files(&root, args.hidden)?;
         if walked.is_empty() {
             // Distinguish "nothing indexable here" from "nothing relevant":
@@ -217,7 +228,6 @@ fn run(args: Args) -> Result<bool> {
             );
             return Ok(false);
         }
-        let variants = expansion::variants(&args.query, &args.keywords);
         // BM25 candidates are selected per kind: documents are wordier than
         // code and, sharing one index, crowd code out of the candidate_cap
         // slots — a shared index measurably lost correct code files on
@@ -233,33 +243,33 @@ fn run(args: Args) -> Result<bool> {
             if lane.is_empty() {
                 continue;
             }
-            let index =
-                bm25::Bm25Index::build_from_files(&root, &lane, config.bm25_k1, config.bm25_b);
+            let index = bm25::Bm25Index::build_from_files(
+                &root,
+                &lane,
+                config.bm25_k1,
+                config.bm25_b,
+                &variants,
+            );
             variant_lists.extend(
                 variants
                     .iter()
                     .map(|variant| index.top(variant, config.candidate_cap)),
             );
         }
-        let walked_rel: BTreeSet<String> = walked
-            .iter()
-            .map(|p| {
-                p.strip_prefix(&root)
-                    .unwrap_or(p)
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
-        let grep_hits = if config.git_grep_union {
-            let grep_keywords: Vec<String> = variants
-                .iter()
-                .flat_map(|v| v.split(','))
-                .map(|k| k.trim().to_owned())
-                .filter(|k| !k.is_empty())
-                .collect();
-            candidates::git_grep_hits(&root, &grep_keywords, &walked_rel)
-        } else {
-            Vec::new()
+        let grep_hits = match grep {
+            Some(search) => {
+                let walked_rel: BTreeSet<String> = walked
+                    .iter()
+                    .map(|p| {
+                        p.strip_prefix(&root)
+                            .unwrap_or(p)
+                            .to_string_lossy()
+                            .into_owned()
+                    })
+                    .collect();
+                candidates::git_grep_hits(search, &walked_rel)
+            }
+            None => Vec::new(),
         };
         candidates::union_candidates(&variant_lists, &grep_hits)
     };
@@ -325,6 +335,10 @@ fn run(args: Args) -> Result<bool> {
     let mut ranked: Vec<RankedFile> = Vec::new();
     let mut any_real_match = false;
     let (mut code_shown, mut doc_shown) = (0usize, 0usize);
+    // Every lane is gated first and then all lanes rerank concurrently: each
+    // rerank is an independent request, so a mixed corpus pays one round trip
+    // instead of two. Notices print per lane, in lane order.
+    let mut gated = Vec::new();
     for (lane, gate, any_doc, label) in [
         (code_lane, config.threshold, false, "code file"),
         (doc_lane, config.doc_threshold, true, "document"),
@@ -338,16 +352,17 @@ fn run(args: Args) -> Result<bool> {
         // nothing may clear the gate; the best few verdicts marked `fallback`
         // beat silence for a calling agent, which can judge by score.
         let lane_fallback = lane_kept.is_empty() && config.empty_fallback > 0;
+        let mut notice = None;
         if lane_fallback {
             lane_kept = lane_rest;
             lane_kept.sort_by(|a, b| b.score.total_cmp(&a.score));
             lane_kept.truncate(config.empty_fallback);
             lane_kept.retain(|v| v.score > 0.0);
             if !lane_kept.is_empty() {
-                eprintln!(
+                notice = Some(format!(
                     "jevr: no {label} scored >= {gate:.2}; showing the best {} below-threshold guesses",
                     lane_kept.len()
-                );
+                ));
             }
         }
         lane_kept.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -357,22 +372,25 @@ fn run(args: Args) -> Result<bool> {
         if !lane_fallback {
             any_real_match = true;
         }
-        let lane = lane_kept;
-        let fallback = lane_fallback;
-        let heads: Vec<(String, String)> = lane
+        let heads: Vec<(String, String)> = lane_kept
             .iter()
             .map(|v| {
                 let head = head_by_file.get(&v.file).cloned().unwrap_or_default();
                 (v.file.clone(), head)
             })
             .collect();
-        let rank_probabilities = match runtime.block_on(rerank::rank_kept(
-            &client,
-            &config.model,
-            &args.query,
-            &heads,
-            any_doc,
-        )) {
+        gated.push((lane_kept, lane_fallback, any_doc, notice, heads));
+    }
+    let rankings = runtime.block_on(futures::future::join_all(gated.iter().map(
+        |(_, _, any_doc, _, heads)| {
+            rerank::rank_kept(&client, &config.model, &args.query, heads, *any_doc)
+        },
+    )));
+    for ((lane, fallback, any_doc, notice, _), ranking) in gated.into_iter().zip(rankings) {
+        if let Some(notice) = notice {
+            eprintln!("{notice}");
+        }
+        let rank_probabilities = match ranking {
             Ok(lane_ranked) => Some(
                 lane_ranked
                     .into_iter()

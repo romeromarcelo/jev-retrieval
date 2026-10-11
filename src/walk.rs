@@ -59,7 +59,11 @@ pub fn searchable_files(root: &Path, include_hidden: bool) -> Result<Vec<PathBuf
         .git_global(true)
         .parents(true)
         .require_git(false)
-        .filter_entry(|entry| !entry.path().is_dir() || !is_skipped_dir(entry.path()));
+        // File type from readdir: `is_dir()` would cost a stat per entry, and
+        // symlinks are never descended either way.
+        .filter_entry(|entry| {
+            !entry.file_type().is_some_and(|kind| kind.is_dir()) || !is_skipped_dir(entry.path())
+        });
     for entry in builder.build() {
         let entry = entry?;
         if entry.file_type().is_some_and(|kind| kind.is_file())
@@ -84,60 +88,31 @@ pub fn is_skipped_dir(path: &Path) -> bool {
 
 /// Extensions searched as source code (`FileKind::Code`), verified with the
 /// subsystem-membership question set rather than the document coverage one.
-pub fn is_code_extension(extension: &std::ffi::OsStr) -> bool {
-    matches!(
-        extension.to_str(),
-        Some(
-            "rs" | "js"
-                | "jsx"
-                | "ts"
-                | "tsx"
-                | "py"
-                | "go"
-                | "java"
-                | "kt"
-                | "kts"
-                | "rb"
-                | "php"
-                | "c"
-                | "h"
-                | "cpp"
-                | "hpp"
-                | "cs"
-                | "swift"
-                | "scala"
-                | "sh"
-                | "sql"
-                | "yaml"
-                | "yml"
-                | "json"
-                | "toml"
-        )
-    )
-}
+pub const CODE_EXTENSIONS: &[&str] = &[
+    "rs", "js", "jsx", "ts", "tsx", "py", "go", "java", "kt", "kts", "rb", "php", "c", "h", "cpp",
+    "hpp", "cs", "swift", "scala", "sh", "sql", "yaml", "yml", "json", "toml",
+];
 
 /// Prose/document extensions: files whose relevance is judged by document
 /// coverage rather than subsystem membership. Binary formats (PDF, DOCX) are
 /// excluded — no text extraction stage exists, and read_to_string would skip
 /// them as unreadable anyway.
+pub const DOC_EXTENSIONS: &[&str] = &[
+    "adoc", "asciidoc", "htm", "html", "markdown", "md", "mdx", "org", "rst", "tex", "text", "txt",
+];
+
+/// Whether `extension` is one of [`CODE_EXTENSIONS`].
+pub fn is_code_extension(extension: &std::ffi::OsStr) -> bool {
+    extension
+        .to_str()
+        .is_some_and(|ext| CODE_EXTENSIONS.contains(&ext))
+}
+
+/// Whether `extension` is one of [`DOC_EXTENSIONS`].
 pub fn is_doc_extension(extension: &std::ffi::OsStr) -> bool {
-    matches!(
-        extension.to_str(),
-        Some(
-            "adoc"
-                | "asciidoc"
-                | "htm"
-                | "html"
-                | "markdown"
-                | "md"
-                | "mdx"
-                | "org"
-                | "rst"
-                | "tex"
-                | "text"
-                | "txt"
-        )
-    )
+    extension
+        .to_str()
+        .is_some_and(|ext| DOC_EXTENSIONS.contains(&ext))
 }
 
 #[cfg(test)]

@@ -273,3 +273,68 @@ The same mechanism made the cap-100 re-run incremental: a byte-identical
 corpus rebuild replayed all shared verification requests free and billed
 only the newly admitted candidate slots. A fully cold two-mode pass is
 roughly 300K requests.
+
+## 9. Latency and memory (byte-identical output)
+
+Measured 2026-10-11 on an Apple M3 Max (14 cores). The main corpus is a
+shallow clone of Django: 4,140 searchable files, 27 MB, 3.6 M tokens, mixed
+code and documents. "Warm" means a full cache replay. Medians of 5 runs.
+
+| Stage 1 on Django | Before | After |
+|---|---|---|
+| Walk | 100 ms | 83 ms (133 ms while `git grep` runs alongside) |
+| BM25 build + top | 550 ms | 55 ms |
+| `git grep` (on the critical path) | 175 ms | ≈1 ms left to wait (runs during walk + BM25) |
+| Stage 1 total | 826 ms | 190 ms |
+| BM25 index peak RSS | 36.7 MB | 14.0 MB |
+
+What changed in Stage 1:
+
+- **BM25 postings cover only the query terms.** Every token still counts
+  toward document length, and `top()` is unchanged. The old index held
+  postings for the whole vocabulary, which no query ever reads.
+- **The tokenizer allocates nothing per token.** It works on byte offsets,
+  and ASCII lowercasing reuses one buffer.
+- **Files are read and tokenized on every core,** then merged in walk order.
+- **The walk uses the entry's `readdir` type** instead of a `stat` per entry.
+- **`git grep` starts before the walk, on a background thread,** with
+  pathspecs limiting it to searchable extensions. Any other hit would be
+  dropped by the walked-set filter anyway. On repos that track large
+  non-source files, those pathspecs also removed most of the `git grep`
+  child's memory.
+
+| Warm query | Latency before → after | Peak footprint (jevr) | Peak RSS incl. `git grep` |
+|---|---|---|---|
+| Django, mixed, `--json` | 0.86 → 0.20 s | 29.4 → 11.0 MB | 68.3 → 19.2 MB |
+| Django `docs/`, documents only | 0.20 → 0.05 s | 14.0 → 7.8 MB | 33.2 → 16.0 MB |
+| tsai-rs (403 files) | 0.16 → 0.03 s | 8.3 → 6.1 MB | 117.5 → 14.3 MB |
+| this repo (41 files) | 0.05 → 0.04 s | 5.2 → 4.4 MB | 13.2 → 12.6 MB |
+
+**Concurrent lane reranks.** The rerank-only cold cost of a mixed-corpus
+query dropped from 0.68 s to 0.42 s (6 interleaved runs each, ranges
+disjoint). The A/B deleted only the cached Choice responses, so each run
+billed exactly the 2 rerank requests in both versions.
+
+**Exactness evidence.**
+
+- **Tokenizer:** identical token streams against the previous tokenizer on
+  4,927 files (5.1 M tokens) and on 300 k Unicode fuzz strings (final sigma,
+  İ, K, combining marks, non-ASCII digits).
+- **Rankings:** identical full uncapped `top()` rankings for 2,138 query
+  variants, both serial and parallel builds.
+- **`git grep`:** identical walked-filtered hits in 324 comparisons, including
+  subdirectory roots and option-like or regex keywords.
+- **Walk:** identical output on edge-case trees (symlinks named like skipped
+  directories, skip-named or symlinked roots).
+- **End to end:** byte-identical stdout, stderr and exit codes on 8 queries
+  across every output mode, lane mix, `-k`, single-file and `--no-grep-union`.
+  The replay used a warm cache and an invalid API key and made 0 network
+  requests, which proves every request body and cache key is unchanged.
+
+**Measured and not adopted.**
+
+- **Full LTO with `codegen-units = 1`:** 0.9 MB lower RSS (−7%) and a
+  2.1 MB smaller binary, but incremental `cargo test --release` rose from
+  2.6 s to 24.8 s.
+- **Thin LTO:** no gain.
+- **Parallel walk:** −15 ms only, and it changes how walk errors propagate.
