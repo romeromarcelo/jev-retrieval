@@ -75,7 +75,7 @@ evidence record is `docs/BENCHMARKS.md`; the BEIR gates are reproducible via
 - **Document questions and `doc_threshold` are measured too** (docs/BENCHMARKS.md §4): the code phrasing under-scores directly relevant prose below the 0.90 gate; the coverage phrasing separates 0.97–0.98 relevant vs 0.01–0.06 incidental. `doc_threshold` 0.60 is the macro-F1 plateau on BEIR SciFact + NFCorpus (623 queries). Doc windows travel under a `text` state key; changing any of this shifts cache keys and calibration.
 - **Lane separation is a parity invariant**: per-kind BM25 indexes, per-lane fallback, and the byte-identical all-code rerank body exist because shared candidate slots and a shared fallback each lost gold files in parity A/Bs (docs/BENCHMARKS.md §6). Pure-code and pure-doc corpora must behave as if the other kind did not exist.
 - **Wire format is a contract**: `tests/wire.rs` replays bodies captured from the official SDK. Any request/response shape change must extend those golden tests.
-- **Cache correctness is structural**: key = sha256(entire serialized body) under `~/.cache/jevr/`; file content is inside the hash so entries cannot go stale. Never write cache or index state into searched repositories.
+- **Cache correctness is structural**: key = sha256(entire serialized body) under `~/.cache/jevr/`; file content is inside the hash so entries cannot go stale. A hit refreshes the entry's mtime at most once a day, so mtime means last use for age-based pruning (docs/GUIDE.md). Never write cache or index state into searched repositories.
 - **Bare queries beat `-k` variants for BM25** (0.673 vs 0.614 macro-F1) — don't add variants to benchmark runs or examples.
 
 ## Benchmarking notes

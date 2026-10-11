@@ -149,6 +149,17 @@ code replay byte-identical results with zero network requests (p50 0.2 s vs
 deliberately swallowed — a failed write only costs a future cache miss.
 Searched repositories are never written to.
 
+Nothing is evicted automatically. A hit refreshes the entry's modification
+time (at most once a day, so repeat hits stay free of metadata writes), and
+entries unused for N days can be pruned with
+`find "${XDG_CACHE_HOME:-$HOME/.cache}/jevr" -name '*.json' -mtime +N -delete`.
+A pruned entry costs only a re-bill if its request comes back. Entries
+written by older versions keep their write time until their next hit, so
+replay benchmark caches once, or choose a large N, before the first prune.
+Each entry occupies at least one 4 KiB filesystem block on APFS and ext4. A
+packed SQLite store would be ~14× smaller on disk, but it adds 1.9 MB to the
+binary and 1.7 MB to peak memory (docs/BENCHMARKS.md §10).
+
 Billing is per input token (output tokens are free); a cold query costs on
 the order of a cent, warm repeats are free. `JEVR_DEBUG=1` prints one stderr
 line per billed network request (cache hits excluded) — the request-counting

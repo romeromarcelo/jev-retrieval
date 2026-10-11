@@ -21,8 +21,9 @@ use super::schemas::{JevRequest, JevResponse};
 use anyhow::{bail, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 const API_URL: &str = "https://api.typesafe.ai/v1/systemone";
 const MAX_RETRIES: u32 = 3;
@@ -75,9 +76,13 @@ impl JevClient {
         if let Some(path) = &cache_file {
             // A corrupt or unparsable entry falls through to a re-fetch that
             // overwrites it; the cache can only ever add hits, never failures.
-            if let Ok(text) = std::fs::read_to_string(path) {
-                if let Ok(cached) = serde_json::from_str(&text) {
-                    return Ok(cached);
+            if let Ok(mut file) = std::fs::File::open(path) {
+                let mut text = String::new();
+                if file.read_to_string(&mut text).is_ok() {
+                    if let Ok(cached) = serde_json::from_str(&text) {
+                        mark_used(&file);
+                        return Ok(cached);
+                    }
                 }
             }
         }
@@ -146,6 +151,24 @@ fn write_cache(path: &std::path::Path, text: &str) {
     }
 }
 
+/// Best-effort refresh of a hit entry's mtime, at most once a day, so mtime
+/// means last use and an age-based prune (docs/GUIDE.md) evicts only unused
+/// entries. Skipping fresh entries keeps repeat hits free of a metadata write
+/// (~24 µs each); a failure (read-only cache, foreign owner) leaves mtime as is.
+fn mark_used(file: &std::fs::File) {
+    let now = SystemTime::now();
+    let fresh = file
+        .metadata()
+        .and_then(|meta| meta.modified())
+        .is_ok_and(|modified| {
+            now.duration_since(modified)
+                .is_ok_and(|age| age < Duration::from_secs(24 * 60 * 60))
+        });
+    if !fresh {
+        let _ = file.set_modified(now);
+    }
+}
+
 fn retry_delay(retry: u32) -> Duration {
     Duration::from_millis(250 << retry)
 }
@@ -170,5 +193,24 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, cached.cache_path("{\"x\":2}").unwrap());
         assert!(JevClient::new("k".into(), None).cache_path("{}").is_none());
+    }
+
+    #[test]
+    fn mark_used_refreshes_only_stale_entries() {
+        let path = std::env::temp_dir().join(format!("jevr-mark-used-{}", std::process::id()));
+        std::fs::write(&path, "{}").unwrap();
+        let file = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        let stale = SystemTime::now() - Duration::from_secs(2 * 24 * 60 * 60);
+        file.set_modified(stale).unwrap();
+        mark_used(&file);
+        let touched = file.metadata().unwrap().modified().unwrap();
+        assert!(touched > stale + Duration::from_secs(24 * 60 * 60));
+        mark_used(&file);
+        assert_eq!(file.metadata().unwrap().modified().unwrap(), touched);
+        std::fs::remove_file(&path).unwrap();
     }
 }
