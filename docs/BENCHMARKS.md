@@ -36,19 +36,26 @@ Deterministic sample (every 6th of the id-sorted 300 instances; 11 repos),
 checkout `repo@base_commit`, query = the raw problem statement, no keyword
 variants — the autonomous floor on bug-report-style queries, a harder shape
 than the concept queries the tool targets. Gold = non-test files touched by
-the merged patch.
+the merged patch. Harness: [`benchmarks/swebench.py`](../benchmarks/swebench.py).
 
 | Metric | jevr | Published anchors |
 |---|---|---|
-| Recall@1 (any gold) | 0.76 | — |
+| Recall@1 (any gold) | 0.72 | — |
 | any-gold@10 | **0.90** | BM25@27K: 0.513 |
 | all-gold@10 | **0.90** | Agentless (GPT-4o): 0.697 · LocAgent (Claude-3.5, @5): ≈0.927 |
-| MRR (first gold) | 0.83 | — |
+| MRR (first gold) | 0.81 | — |
 
-The unchanged pipeline reproduced 0.760 / 0.900 / 0.900 / 0.827 exactly
-across two days — this sample is the stable regression gate for
-score-affecting changes. Caveats: one 50-instance sample, Python-only repos,
-plausibly in every model's training data.
+Measured 2026-10-12 with the 0.2.1 pipeline (32,847 billed requests, ~690
+per instance) and replayable offline (§11). The first measurement, on
+2026-09-20, predates the document lane and the response cache: two runs that
+day both gave 0.760 / 0.900 / 0.900 / 0.827. Two fewer instances now rank
+their gold file first; pipeline changes and draw noise are not separated.
+The checkouts sit under `benchmarks/repos/`, where this repository's
+`.gitignore` applies: its `debug/` rule hides two Django test templates from
+the document lane, which the scores do not use.
+This sample is the regression gate for score-affecting changes, run as a
+same-day A/B. Caveats: one 50-instance sample, Python-only repos, plausibly
+in every model's training data.
 
 ### Loc-Bench V1, Feature Request category (30-instance sample)
 
@@ -76,7 +83,8 @@ recall by double digits on both external benchmarks.
 Full test splits, `--threshold 0 --top-k 10 --json`, defaults otherwise.
 Corpora are converted to one `.txt` per document — title, blank line, text,
 trailing newline; that exact byte format keys the response cache.
-Reproduction scripts: [`benchmarks/`](../benchmarks/).
+Reproduction scripts: [`benchmarks/`](../benchmarks/). Both numbers replay
+offline and for free from the run's response cache (§11).
 
 | Dataset | Queries | jevr nDCG@10 | Stage-1-only (BM25) | Published BM25 | Published BM25+CE | Best verified zero-shot reranker |
 |---|---|---|---|---|---|---|
@@ -226,7 +234,9 @@ documents — and compared against the public
 in Reranking). Protocol, per-task scores, and the replication guide are in
 [`benchmarks/RTEB.md`](../benchmarks/RTEB.md); the leaderboard's Borda/pool
 rules were validated to exact equality against its published tables before
-inserting jevr. All qrels graded, nDCG@10, single draw.
+inserting jevr. All qrels graded, nDCG@10, single draw. HAKARI's own scorer
+counts every judged document as relevance 1; only NanoCUREv1 has graded
+qrels, and scored that way jevr's means rise by 0.002–0.004.
 
 | Run | Mean nDCG@10 | Borda | Leaderboard rank |
 |---|---|---|---|
@@ -501,3 +511,60 @@ reads the old per-file entries.
   stale entry was refreshed, a same-day repeat hit wrote nothing, and the
   BEIR replays stayed byte-identical. The prune command is documented in
   docs/GUIDE.md and never runs automatically.
+
+## 11. Replay bundles
+
+The §2 SWE-bench, §3 BEIR and §8 NanoRTEB numbers were re-derived from
+cached responses alone, and each benchmark's responses were packed into a
+bundle that anyone can replay offline (`benchmarks/README.md`, "Verify the
+published numbers offline"). The bundles are attached to the v0.2.2 release.
+
+- **Extraction.** A clone of the author's cache, with every modification time
+  set to 2000-01-01, was replayed with `--offline`; the touch-on-hit of §10
+  refreshed exactly the entries the benchmark used, and the rest were deleted.
+  The BEIR responses predate the tool's rename and came from
+  `~/.cache/jev-navigator` (43,829 entries), the NanoRTEB responses from
+  `~/.cache/jevr` (497,131). The 2026-09-20 SWE-bench runs predate the
+  cache, so the benchmark was re-measured live on 2026-10-12 (§2); 1,716 of
+  its requests were already in `~/.cache/jev-navigator`.
+
+  | Bundle | Entries | Verifications | Reranks | Billed input tokens |
+  |---|---|---|---|---|
+  | BEIR | 16,726 | 16,128 | 598 | 22.8 M (36.5 k per query) |
+  | SWE-bench Lite | 34,553 | 34,453 | 100 | 200.2 M (4.0 M per instance) |
+  | NanoRTEB, three modes | 357,205 | 351,156 | 6,049 | 583.6 M |
+
+- **Replay.** BEIR and SWE-bench replay with 0 requests missing and rankings
+  byte-identical to the live runs (BEIR also from a copy unpacked outside any
+  git repository, with freshly downloaded and converted data). NanoRTEB
+  replays every per-task score in `benchmarks/RTEB.md` but one, Retrieval
+  NanoAILACasedocs (28.8, not 27.1; explained there), with 84 / 633 / 452
+  requests missing in the retrieval / cap100 / reranking modes. Re-sent live,
+  437 of the 452, 71 of the 84 and 564 of the 633 were reranks rejected as
+  too large (`HTTP 400 max_tokens_exceeded`; 100 candidates' 25-line heads
+  of legal or financial documents reach 350 KB–1 MB); the rest had failed
+  transiently in the live run. A rejected or failed request is never cached,
+  and jevr falls back the same way offline as it did live, so the replay
+  reproduces the live rankings.
+- **Live spot-check.** `--spotcheck`; every response reported `jev-1.13.0`.
+  Each request was byte-identical to its cached twin, so the differences are
+  Jev's draw-to-draw noise:
+
+  | Requests | Sample | Billed | Paired | Mean \|Δp\| | Max \|Δp\| |
+  |---|---|---|---|---|---|
+  | SciFact verification | 10 queries, seed `spotcheck-2026-10-11` | 542 for both datasets | 300 | 0.0044 | 0.080 |
+  | SciFact rerank | | | 10 | 0.0022 | 0.080 |
+  | NFCorpus verification | 10 queries | | 202 | 0.0162 | 0.200 |
+  | NFCorpus rerank | | | 10 | 0.0040 | 0.120 |
+  | SWE-bench verification | 2 instances, seed `spotcheck-2026-10-12` | 306 | 298 | 0.0051 | 0.390 |
+  | SWE-bench rerank | | | 4 | 0.0200 | 0.070 |
+  | NanoRTEB reranking-mode verification | 10 queries, seed `spotcheck-2026-10-12` | 1,022 | 1,000 | 0.0132 | 0.230 |
+  | NanoRTEB reranking-mode rerank | | | 9 | 0.0004 | 0.050 |
+
+  For scale: the two identical file questions of one request differ by
+  0.0051 on average across the BEIR bundle, and two unrelated verification
+  responses by 0.255 (median 0.110). Responses that did not come from these
+  requests would move 16–58× more than the BEIR ones did.
+- **Limits.** The replay proves that code, requests and scoring line up; the
+  spot-check samples whether the responses are Jev's, and only while
+  `jev-1.13.0` is served.

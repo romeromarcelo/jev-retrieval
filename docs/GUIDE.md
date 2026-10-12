@@ -163,14 +163,17 @@ binary and 1.7 MB to peak memory (docs/BENCHMARKS.md §10).
 Billing is per input token (output tokens are free); a cold query costs on
 the order of a cent, warm repeats are free. `JEVR_DEBUG=1` prints one stderr
 line per billed network request (cache hits excluded) — the request-counting
-hook used by the benchmarks. `--no-cache` disables the cache when an
-independent draw is wanted despite identical inputs.
+hook used by the benchmarks. `JEVR_OFFLINE=1` makes a cache miss fail
+instead of reaching the network, so a replay never bills; the benchmark
+harness uses it to verify a published replay bundle and to price an
+experiment before running it (benchmarks/README.md). `--no-cache` disables
+the cache when an independent draw is wanted despite identical inputs.
 
 ## Development invariants
 
 These are measured operating points, not arbitrary constants — do not change
 them without re-running the benchmark evidence
-([BENCHMARKS.md](BENCHMARKS.md); reproduce the BEIR gates with
+([BENCHMARKS.md](BENCHMARKS.md); reproduce the gates with
 [../benchmarks/](../benchmarks/)):
 
 - **The model is pinned** (`jev-1.13.0`): the 0.90 threshold is calibrated
@@ -190,9 +193,10 @@ them without re-running the benchmark evidence
   other kind did not exist.
 - **The wire format is a contract**: extend the golden tests in
   `tests/wire.rs` with any shape change.
-- **SWE-bench Lite (50-sample) is the stable code gate** (0.760/0.900
-  reproduced exactly across two days); score-affecting changes need a
-  same-day A/B there. Small hand-labeled benchmarks flip ±0.3 near the
+- **SWE-bench Lite (50-sample) is the code gate** (0.720/0.900 Recall@1 /
+  any-gold@10 on 2026-10-12, replayable from its bundle;
+  `benchmarks/swebench.py`); score-affecting changes need a same-day A/B
+  there. Small hand-labeled benchmarks flip ±0.3 near the
   threshold — never accept or reject a change on one draw.
 
 Verification commands:

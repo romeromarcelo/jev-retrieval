@@ -105,9 +105,10 @@ repeat-heavy shape of agentic loops nearly free: a warm re-query measured
 requests whose bytes actually changed.
 
 A single benchmark is never enough: protocols, caveats, and rejected
-ablations are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md), and the BEIR and
-NanoRTEB numbers are reproducible with the scripts and guides in
-[benchmarks/](benchmarks/).
+ablations are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md), and the
+SWE-bench, BEIR and NanoRTEB numbers are reproducible with the scripts and
+guides in [benchmarks/](benchmarks/), or replayable offline from the
+published response bundles.
 
 ## Installation
 

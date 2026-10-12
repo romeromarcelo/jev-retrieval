@@ -13,7 +13,8 @@ cargo fmt                                          # rustfmt
 
 Runtime needs `TYPESAFE_API_KEY` exported. `JEVR_DEBUG=1` prints one stderr
 line per billed network request (cache hits excluded) — the request-counting
-hook for benchmarks.
+hook for benchmarks. `JEVR_OFFLINE=1` makes a cache miss fail instead of
+reaching the network (free replays; the debug line still counts the miss).
 
 ## Architecture
 
@@ -80,13 +81,13 @@ evidence record is `docs/BENCHMARKS.md`; the BEIR gates are reproducible via
 
 ## Benchmarking notes
 
-- **SWE-bench Lite (50-sample) is the stable code gate**: the unchanged pipeline reproduced 0.760/0.900/0.900/0.827 exactly across two days. Score-affecting changes need a same-day A/B there (protocol in docs/BENCHMARKS.md §2). Small hand-labeled benchmarks are noisy — per-concern F1 flips ±0.3 near the 0.90 threshold; never accept or reject a change on one draw.
+- **SWE-bench Lite (50-sample) is the code gate** (`benchmarks/swebench.py`): 0.720/0.900/0.900/0.810 (Recall@1/any@10/all@10/MRR) on 2026-10-12, replayable from its bundle; the 2026-09-20 pipeline gave 0.760/0.900/0.900/0.827 in two same-day runs. Score-affecting changes need a same-day A/B there (protocol in docs/BENCHMARKS.md §2). Small hand-labeled benchmarks are noisy — per-concern F1 flips ±0.3 near the 0.90 threshold; never accept or reject a change on one draw.
 - **Document retrieval gates: BEIR SciFact and NFCorpus** (docs/BENCHMARKS.md §3): full pipeline nDCG@10 0.778 / 0.363 vs published BM25 0.665 / 0.325 and best verified zero-shot rerankers 0.777 / 0.399. Reproduce with `benchmarks/` — corpora convert to one `.txt` per doc (title, blank line, text, trailing newline — this exact format keys the response cache); run per query with `--threshold 0 --top-k 10 --json`.
-- The response cache makes warm repeats free — clear `~/.cache/jevr/` (or pass `--no-cache`) when an independent draw is required. A cold BEIR dataset pass bills a few dollars.
+- Each benchmark script (`run.py` for BEIR, `swebench.py`, `rteb.py`) keeps its own response cache in `benchmarks/cache/<benchmark>/` (the replay bundles, docs/BENCHMARKS.md §11), so warm repeats are free. Run an experiment with `--offline` first: it bills nothing and counts the requests the live run would send. Move the cache aside when an independent draw is required. A cold BEIR dataset pass bills a few dollars; a cold SWE-bench pass is ~33k requests (200 M input tokens).
 - **docs/BENCHMARKS.md §5 records the measured dead ends** (bigger request caps, multi-file packing, extra per-doc questions, candidate depth 100, rerank draw averaging, multi-round listwise refinement) — re-test before re-proposing any of them.
 
 ## Repository facts
 
 - `docs/BENCHMARKS.md` is the evidence record; append new experiment evidence there as numbered sections rather than creating new documents.
 - `docs/GUIDE.md` is the contributor-facing technical reference (pipeline internals, configuration rationale, cache/cost, development invariants) — keep it consistent with the invariants above.
-- `benchmarks/` holds the reproducible BEIR harness; `skills/` + `.claude-plugin/` ship the Claude Code skill and plugin (`./install.sh`).
+- `benchmarks/` holds the reproducible benchmark harnesses (BEIR, SWE-bench Lite, NanoRTEB); `skills/` + `.claude-plugin/` ship the Claude Code skill and plugin (`./install.sh`).
