@@ -132,7 +132,7 @@ Why these values (all measured, `src/config.rs` carries the full rationale):
 |---|---|
 | `model` | Pinned, not `jev-latest`: threshold calibration shifts between Jev versions and would silently invalidate the 0.90 gate. |
 | `threshold` | max-over-windows scoring inflates scores relative to a single whole-file judgment; the measured operating plateau is 0.85–0.92 with the optimum at 0.90. |
-| `doc_threshold` | The 0.90 code gate over-rejects prose: on BEIR SciFact/NFCorpus (623 queries) it left 45–65% of queries empty while macro-F1 peaked in the 0.55–0.65 band. 0.60 keeps "more likely relevant than not" semantics above the Noul 0.5 coin-flip floor. `--threshold` overrides both gates. |
+| `doc_threshold` | The 0.90 code gate over-rejects prose: on BEIR SciFact/NFCorpus (623 queries) it left 45–65% of queries empty. Counting the empty-lane fallback, macro-F1 is flat from 0.35 to 0.65 and 0.60 sits within 0.02 of its peak (BENCHMARKS.md §13). 0.60 keeps "more likely relevant than not" semantics above the Noul 0.5 coin-flip floor. `--threshold` overrides both gates. |
 | `doc_rank_weight` | Fusing verify score with rank probability measured +0.007 SciFact / +0.002 NFCorpus nDCG@10, flat across w ∈ [0.5, 2.0]; 1.0 is the plateau center. |
 | `concurrency` | 12.6 s at 8 → 3.7 s at 32 on the heaviest benchmark query, plateau by 32–48, no 429s observed. |
 | `empty_fallback` | Out-of-envelope queries (bug reports) often score everything below threshold while still ranking the right file first — return the best few, flagged, instead of silence. |

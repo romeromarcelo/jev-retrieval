@@ -23,10 +23,11 @@ pub struct Config {
     pub threshold: f64,
     /// Keep documents (FileKind::Doc) with score ≥ doc_threshold. The 0.90 code
     /// threshold over-rejects prose: on BEIR SciFact/NFCorpus (623 queries) it
-    /// left 45–65% of queries with an empty kept set while macro-F1 peaked in
-    /// the 0.55–0.65 band on both datasets (docs/BENCHMARKS.md). 0.60 keeps "more likely
-    /// relevant than not" semantics comfortably above the Noul 0.5 coin-flip
-    /// floor. An explicit --threshold overrides both thresholds.
+    /// left 45–65% of queries with an empty kept set. Counting the empty-lane
+    /// fallback, macro-F1 is flat from 0.35 to 0.65 on both datasets and 0.60
+    /// sits within 0.02 of its peak (docs/BENCHMARKS.md). 0.60 keeps "more likely
+    /// relevant than not" semantics above the Noul 0.5 coin-flip floor. An
+    /// explicit --threshold overrides both thresholds.
     pub doc_threshold: f64,
     /// Document-lane ordering fusion: documents sort by
     /// score + doc_rank_weight × rank_probability (code keeps pure rerank

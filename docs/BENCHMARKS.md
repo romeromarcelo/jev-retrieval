@@ -112,17 +112,21 @@ anchors (±0.015), confirming the code-oriented tokenizer does not hurt prose.
   benchmark: macro-F1 0.406 at 0.65, 0.587 at 0.85, **0.648 at 0.90**, 0.601
   at 0.92 — a stable 0.85–0.92 plateau, not a knife edge.
 - **doc_threshold 0.60.** At the code gate 0.90, 194/300 SciFact and 144/323
-  NFCorpus queries kept nothing. Sweeps put macro-F1's plateau at 0.55–0.65 on
-  both datasets (SciFact 0.493 at 0.60 vs 0.313 at 0.90; NFCorpus 0.163 vs
-  0.111), comfortably above the Noul 0.5 coin-flip floor.
+  NFCorpus queries kept nothing. Counting kept sets alone, macro-F1 peaks at
+  0.35–0.40 (SciFact 0.549, NFCorpus 0.177) and falls through 0.60 (0.492,
+  0.162) to 0.90 (0.313, 0.111). Counting the three below-threshold guesses
+  an empty lane prints, it is flat from 0.35 to 0.65, and 0.60 sits within
+  0.02 of the peak while staying above the Noul 0.5 coin-flip floor (§13).
 - **Question phrasing is measured.** Subsystem-membership phrasing with the
   concept referenced by backticked state path scores dedicated support files
   0.84–0.87 where a naive interpolated question scored them 0.05–0.21, with
   an unmoved negative control. The code phrasing under-scores directly
   relevant prose (0.88/0.66, below the 0.90 gate); the document coverage
   phrasing separates cleanly — relevant 0.97–0.98, incidental mention
-  0.04–0.06, unrelated 0.01. Bodies are pinned by `tests/wire.rs`; any
-  wording change alters cache keys and calibration.
+  0.04–0.06, unrelated 0.01. `tests/wire.rs` pins the document question
+  bodies and both rerank instructions (not the code questions); any wording
+  change alters cache keys and calibration. Re-screening every question
+  against alternative wordings found none better (§13).
 - **Duplicate file-question averaging.** Identical questions in one request
   return independent draws (measured |Δ| 0.01–0.03); asking the file-level
   question twice and averaging cuts threshold-adjacent flicker by √2 for ~60
@@ -168,6 +172,11 @@ re-proposing any of them.
   score or by the document lane's fusion; showing the rerank each file's
   best verification window): score order wins on bug reports but loses on
   concept queries, and no variant won both (§12).
+- **Question rewording** (alternative wordings for the document and code
+  verification questions and for both rerank Choices, and means of
+  production with an alternative): measured without being implemented. No
+  wording beat production on both benchmarks of its lane by more than two
+  production draws differ (§13).
 - **Multi-round listwise refinement** (sliding windows, disjoint tournaments,
   pairwise duels, gated deep insertion, permutation-shuffled draws — the
   mechanisms behind the NFCorpus anchor systems): every mechanism measured
@@ -679,3 +688,148 @@ measure the §5 packing A/B's Recall@1 change (0.760 → 0.720) is within
 draw noise, but its any-gold@10 (0.860) falls below the eight-draw range;
 packing also saves no money under per-token billing, so that rejection
 stands.
+
+## 13. Question-wording re-tune
+
+Measured 2026-10-12 for about 71 M billed input tokens (~$3.1), to look for
+question wordings that score higher on the document and code gates. Every
+question the pipeline asks was screened against alternatives: the document
+and code verification questions and both rerank Choices. None beat
+production, and no wording changed.
+
+### Method
+
+- **One request, several wordings.** A screening request carries the
+  production question set, an identical copy of it, and each alternative,
+  over the exact production state of one verification batch or one rerank.
+  Every wording judges the same input in the same draw, and the copy
+  measures the noise floor. The extra sets leave production's answers
+  intact: on 15 SWE-bench batches, production answers inside two- and
+  three-set requests differed from the bundle's by mean |Δp| 0.021–0.022,
+  against 0.024 for a fresh production-only request. Each extra set adds
+  about 780 input tokens to a code request (+13 %).
+- **Byte identity.** The screen builds jevr's requests outside the binary.
+  Its production-only bodies hash to the published bundles' cache keys: all
+  16,128 BEIR verification bodies, all 598 BEIR rerank bodies, all 50
+  SWE-bench rerank bodies, and the 11 SWE-bench files checked.
+- **Coverage.**
+  - Documents: every (query, candidate) pair of the published BEIR SciFact
+    and NFCorpus runs (16,128 pairs), ordered as the pipeline orders them
+    (score + rank probability, with the published rerank held fixed).
+  - Code: the 12 concept queries of §4 with all 30 candidates each, and for
+    the 50 SWE-bench instances the gold files, the 10 best-scoring other
+    files and 5 random others (3,511 requests).
+  - Reranks: the published kept sets of the 598 non-empty BEIR queries, and
+    the 43 multi-file code kept sets (SWE-bench's replayed from its bundle,
+    the concept queries' from two verification draws).
+- **SWE-bench was not re-run end to end.** A pass bills ~34k requests,
+  mostly `git grep` floods (§12); the screened files include every gold
+  file and its strongest competitors, which decide Recall@1.
+
+### Document verification
+
+Fused nDCG@10 relative to the in-request production set; brackets are 95 %
+paired bootstrap intervals.
+
+| Wording | SciFact | NFCorpus |
+|---|---|---|
+| Production (absolute) | 0.7789 | 0.3624 |
+| Published run, another production draw | −0.0007 | +0.0010 |
+| Identical copy of production | −0.0002 | +0.0007 |
+| "directly address `concept`, its specific subject, question or claim, rather than only a related topic", with matching criteria | +0.0012 [−0.0010, +0.0037] | −0.0008 [−0.0039, +0.0024] |
+| "substantively cover or explain `concept`", no criteria | −0.0010 [−0.0059, +0.0039] | −0.0035 [−0.0072, +0.0001] |
+| "contain information that answers, explains, or gives evidence about `concept`", with criteria | +0.0015 [−0.0009, +0.0039] | −0.0009 [−0.0044, +0.0028] |
+| Mean of production and "directly address" | +0.0013 [−0.0004, +0.0033] | +0.0012 [−0.0010, +0.0034] |
+| Production with its second file-question copy in "directly address" wording | +0.0006 [−0.0008, +0.0020] | +0.0017 [+0.0002, +0.0033] |
+
+- **The wording is at a plateau.** Every effect is within about twice the
+  difference between two production draws (the published run against the
+  in-request set). Only the two arms that keep production in the mix gain
+  on both datasets, by 0.001–0.002, and one of the ten intervals excludes
+  zero, by 0.0002. Adopting any of them would change the document cache
+  keys, invalidate the document entries of all three replay bundles and
+  need a new `doc_threshold`, for a gain no larger than draw noise.
+- **The ceiling is elsewhere.** Production separates relevant from
+  non-relevant candidates with pooled AUC 0.967 (SciFact) and 0.840
+  (NFCorpus). Ordering the same candidates perfectly would reach 0.862 /
+  0.462, and Stage 1 retrieves 0.859 / 0.194 of each query's relevant
+  documents. On NFCorpus the candidate set, not the question, bounds the
+  score.
+
+### Code verification
+
+Concept: the 12 queries' 30 candidates each. SWE-bench: the 48 instances
+with a gold file among the screened files.
+
+| Wording | Concept macro-F1 at 0.90 | Concept AUC | Concept queries with a correct top file | SWE-bench gold scored first | SWE-bench instances keeping gold at 0.90 | SWE-bench AUC |
+|---|---|---|---|---|---|---|
+| Production | 0.588 | 0.920 | 10 / 12 | 39 / 48 | 41 | 0.976 |
+| Identical copy of production | 0.584 | 0.919 | 10 / 12 | 38 / 48 | 41 | 0.977 |
+| Production without criteria | 0.565 | 0.909 | 8 / 12 | 34 / 48 | 39 | 0.975 |
+| "implement `concept` itself, or exist specifically to support it, rather than belong to a neighboring feature of the same subsystem" | 0.489 | 0.919 | 11 / 12 | 36 / 48 | 18 | 0.964 |
+| "where the behavior that `concept` describes is implemented" | 0.584 | 0.907 | 8 / 12 | 34 / 48 | 31 | 0.976 |
+| Mean of production and "neighboring feature" | 0.593 | 0.921 | 11 / 12 | 37 / 48 | 24 | 0.972 |
+
+- **Production wins.** Dropping the criteria or describing behavior loses
+  on both benchmarks.
+- **The stricter "neighboring feature" wording trades recall for a better
+  top file.** It puts a correct file first on 11 of 12 concept queries, but
+  keeps 40 concept files at 0.90 against production's 74, and 30 of 50
+  SWE-bench instances keep no screened file at all (production: 5). It
+  would need a new code threshold and still ranks SWE-bench gold first less
+  often. Its mean with production and the other combinations tried rank
+  gold first on 35–37 of 48.
+
+### Rerank wording
+
+BEIR, fused nDCG@10 relative to production, ordering by the mean of two
+in-request draws:
+
+| Choice wording ("Which file in `files` …") | SciFact | NFCorpus |
+|---|---|---|
+| Production: "most likely contains what `concept` describes" (absolute) | 0.7782 | 0.3632 |
+| "best answers or addresses `concept`" | +0.0004 | +0.0001 |
+| "is most relevant to `concept`" | −0.0009 | +0.0002 |
+| "most directly answers, explains, or gives evidence about `concept`" | −0.0008 | +0.0004 |
+| No rerank: verification score order | −0.0144 [−0.0254, −0.0045] | −0.0010 [−0.0044, +0.0023] |
+
+Every alternative wording's interval includes zero.
+
+Code, ordering by the mean of three in-request draws. Concept scores cover
+24 kept sets (12 queries × 2 verification draws); the bundle's own rerank
+answers reproduce the published SWE-bench 0.720 Recall@1 / 0.810 MRR.
+
+| Choice wording ("Which file in `files` …") | SWE-bench Recall@1 | SWE-bench MRR | Concept P@1 | Concept nDCG@10 |
+|---|---|---|---|---|
+| Production: "most likely implements what `concept` describes" | 0.740 | 0.817 | 0.917 | 0.715 |
+| "would a developer most likely need to change to work on what `concept` describes" | 0.700 | 0.797 | 0.917 | 0.724 |
+| "is the main implementation of what `concept` describes" | 0.700 | 0.800 | 0.917 | 0.714 |
+| "contains the code that most directly implements what `concept` describes" | 0.680 | 0.787 | 0.917 | 0.719 |
+
+- **Every alternative lost SWE-bench instances and gained none**: 2, 2 and
+  3 instances lose their gold file at rank 1. The "need to change" wording
+  raised concept nDCG@10 by 0.009, with 5 kept sets better and 2 worse.
+- **In-request Choice draws are nearly deterministic** (mean |Δp| 0.006
+  between copies), so averaging them adds little; separate requests vary
+  more (Recall@1 0.72–0.74 over eight rerank draws, §12).
+
+### `doc_threshold` sweep
+
+Macro-F1 of the printed documents against the qrels (relevant = gain > 0),
+on the published BEIR runs with `top_k` 10. The threshold-0 run's rank
+probabilities order the cap; "with fallback" counts the three
+below-threshold guesses an empty lane prints.
+
+| `doc_threshold` | 0.30 | 0.35 | 0.40 | 0.50 | 0.55 | 0.60 | 0.65 | 0.70 | 0.90 |
+|---|---|---|---|---|---|---|---|---|---|
+| SciFact, kept set | 0.542 | 0.549 | 0.547 | 0.529 | 0.520 | 0.492 | 0.476 | 0.449 | 0.313 |
+| SciFact, with fallback | 0.599 | 0.610 | 0.615 | 0.613 | 0.611 | 0.597 | 0.597 | 0.586 | 0.538 |
+| NFCorpus, kept set | 0.176 | 0.177 | 0.177 | 0.167 | 0.165 | 0.162 | 0.159 | 0.153 | 0.111 |
+| NFCorpus, with fallback | 0.176 | 0.178 | 0.179 | 0.175 | 0.174 | 0.173 | 0.172 | 0.169 | 0.158 |
+
+The kept-set curve, which §4's figures use, peaks at 0.35–0.40; this
+corrects an earlier 0.55–0.65 plateau claim. Counting the fallback, 0.60 is
+within 0.018 (SciFact) and 0.006 (NFCorpus) of the peak, and 0.50, at the
+Noul coin-flip floor, would gain 0.016 and 0.002. No nDCG@10 gate depends
+on the threshold (the BEIR and RTEB runs use threshold 0); 0.60 is
+unchanged.
