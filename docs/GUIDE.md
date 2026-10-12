@@ -184,7 +184,8 @@ them without re-running the benchmark evidence
 - **Request caps stay at 24 KB / 24 windows, one file per request.**
   Doubling the caps cut requests 2.4× but dropped a large concern's F1
   0.39 → 0.24 twice; multi-file packing (−15% requests) regressed SWE-bench
-  0.760 → 0.720 in a same-day A/B. Per-token billing means neither saves
+  any-gold@10 0.900 → 0.860 in a same-day A/B, below the eight-draw range of
+  BENCHMARKS.md §12. Per-token billing means neither saves
   money anyway (BENCHMARKS.md §5 records these and the other rejected
   ablations — re-test before re-proposing any of them).
 - **Question phrasing and the document thresholds are measured** — changing

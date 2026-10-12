@@ -45,7 +45,7 @@ the merged patch. Harness: [`benchmarks/swebench.py`](../benchmarks/swebench.py)
 | all-gold@10 | **0.90** | Agentless (GPT-4o): 0.697 · LocAgent (Claude-3.5, @5): ≈0.927 |
 | MRR (first gold) | 0.81 | — |
 
-Measured 2026-10-12 with the 0.2.1 pipeline (32,847 billed requests, ~690
+Measured 2026-10-12 with the 0.2.1 pipeline (32,847 billed requests, ~660
 per instance) and replayable offline (§11). The first measurement, on
 2026-09-20, predates the document lane and the response cache: two runs that
 day both gave 0.760 / 0.900 / 0.900 / 0.827. The code lane sent
@@ -126,7 +126,7 @@ anchors (±0.015), confirming the code-oriented tokenizer does not hurt prose.
   0.04–0.06, unrelated 0.01. `tests/wire.rs` pins the document question
   bodies and both rerank instructions (not the code questions); any wording
   change alters cache keys and calibration. Re-screening every question
-  against alternative wordings found none better (§13).
+  against alternative wordings found none better beyond draw noise (§13).
 - **Duplicate file-question averaging.** Identical questions in one request
   return independent draws (measured |Δ| 0.01–0.03); asking the file-level
   question twice and averaging cuts threshold-adjacent flicker by √2 for ~60
@@ -144,16 +144,17 @@ anchors (±0.015), confirming the code-oriented tokenizer does not hurt prose.
 
 ## 5. Ablations tested and rejected
 
-Each of these was implemented, measured, and reverted. Re-test before
-re-proposing any of them.
+Each of these was measured and rejected, and reverted where it had been
+implemented. Re-test before re-proposing any of them.
 
 - **Doubling request caps to 48 KB / 48 windows** cut requests 2.4× but
   dropped the largest concern's F1 0.39 → 0.24 in two independent runs
   (large-state dilution). The 24 KB / 24-window cap is an accuracy operating
   point, not a transport limit.
 - **Multi-file request packing** (several files per request) saved 15% of
-  requests but regressed SWE-bench 0.760 → 0.720 in a same-day A/B:
-  irrelevant co-packed content acts as a distractor. Per-token billing means
+  requests but regressed SWE-bench any-gold@10 0.900 → 0.860 in a same-day
+  A/B, below the eight-draw range of §12 (its Recall@1 drop, 0.760 → 0.720,
+  is within draw noise): irrelevant co-packed content acts as a distractor. Per-token billing means
   packing saves no money anyway.
 - **`-k` keyword variants for BM25** measure worse than bare queries
   (macro-F1 0.614 vs 0.673): per-variant top-30 unions dilute precision. The
@@ -695,7 +696,7 @@ Measured 2026-10-12 for about 71 M billed input tokens (~$3.1), to look for
 question wordings that score higher on the document and code gates. Every
 question the pipeline asks was screened against alternatives: the document
 and code verification questions and both rerank Choices. None beat
-production, and no wording changed.
+production by more than draw noise, and no wording changed.
 
 ### Method
 
@@ -745,7 +746,7 @@ paired bootstrap intervals.
 - **The wording is at a plateau.** Every effect is within about twice the
   difference between two production draws (the published run against the
   in-request set). Only the two arms that keep production in the mix gain
-  on both datasets, by 0.001–0.002, and one of the ten intervals excludes
+  on both datasets, by 0.0006–0.0017, and one of the ten intervals excludes
   zero, by 0.0002. Adopting any of them would change the document cache
   keys, invalidate the document entries of all three replay bundles and
   need a new `doc_threshold`, for a gain no larger than draw noise.
@@ -788,9 +789,9 @@ in-request draws:
 | Choice wording ("Which file in `files` …") | SciFact | NFCorpus |
 |---|---|---|
 | Production: "most likely contains what `concept` describes" (absolute) | 0.7782 | 0.3632 |
-| "best answers or addresses `concept`" | +0.0004 | +0.0001 |
-| "is most relevant to `concept`" | −0.0009 | +0.0002 |
-| "most directly answers, explains, or gives evidence about `concept`" | −0.0008 | +0.0004 |
+| "best answers or addresses `concept`" | +0.0004 [−0.0042, +0.0050] | +0.0001 [−0.0014, +0.0020] |
+| "is most relevant to `concept`" | −0.0009 [−0.0066, +0.0051] | +0.0002 [−0.0012, +0.0017] |
+| "most directly answers, explains, or gives evidence about `concept`" | −0.0008 [−0.0074, +0.0059] | +0.0004 [−0.0011, +0.0019] |
 | No rerank: verification score order | −0.0144 [−0.0254, −0.0045] | −0.0010 [−0.0044, +0.0023] |
 
 Every alternative wording's interval includes zero.
