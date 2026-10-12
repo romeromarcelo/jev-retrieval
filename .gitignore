@@ -19,6 +19,8 @@ debug/
 /benchmarks/data/
 /benchmarks/corpora/
 /benchmarks/*.results.jsonl
+/benchmarks/cache/
+/benchmarks/repos/
 
 # Python tooling caches (benchmarks/ scripts)
 __pycache__/

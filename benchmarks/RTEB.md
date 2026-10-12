@@ -138,6 +138,14 @@ resemble yours.
 
 ## Reproducing
 
+`rteb.py` runs steps 1–3, one command per mode (`retrieval`, `cap100`,
+`reranking`), and replays offline from the published bundle
+([README.md](README.md#verify-the-published-numbers-offline)):
+
+```sh
+uv run rteb.py reranking rteb-reranking.results.jsonl
+```
+
 The protocol is the same as the BEIR harness in this directory:
 
 1. **Convert.** Every document of every
@@ -154,7 +162,10 @@ The protocol is the same as the BEIR harness in this directory:
    line. For the `candidate_cap` variant, pass `--config` with a YAML
    containing exactly `candidate_cap: 100`.
 3. **Score.** nDCG@10 as in `score.py`, with graded gains from the `qrels`
-   config (NanoCUREv1 has gains 1 and 2; the rest are binary).
+   config (NanoCUREv1 has gains 1 and 2; the rest are binary). HAKARI's own
+   scorer counts every judged document as relevance 1, which lifts jevr's
+   NanoCUREv1 to 71.5 / 79.5 / 84.2 and the three means by 0.4 / 0.3 / 0.2,
+   so the comparison above slightly understates jevr.
 4. **Compare.** Task-level scores for every leaderboard model are in the
    `viewer_task_results` table of
    [hakari-bench/leaderboard_database](https://huggingface.co/datasets/hakari-bench/leaderboard_database)
@@ -166,9 +177,16 @@ The protocol is the same as the BEIR harness in this directory:
 
 A cold pass over both modes issues roughly 300K Jev requests (long legal/code
 documents split into multiple verification requests). Responses are cached
-client-side under `~/.cache/jevr/`, keyed on the full request body with file
-content inside the hash — warm repeats replay in ~0.1 s with zero billed
-requests, and the `candidate_cap: 100` re-run only billed the newly admitted
-candidate slots because the rebuilt corpora were byte-identical. Pass
-`--no-cache` for an independent draw. Single draw — expect per-task noise
-near decision boundaries.
+in `cache/rteb/`, keyed on the full request body with file content inside the
+hash — warm repeats replay in ~0.1 s with zero billed requests, and the
+`candidate_cap: 100` re-run only billed the newly admitted candidate slots
+because the rebuilt corpora were byte-identical. Move `cache/rteb/` aside for
+an independent draw. Single draw — expect per-task noise near decision
+boundaries.
+
+The bundle holds the three runs' 357,205 responses (583.6 M billed input
+tokens) and replays every score above but one: Retrieval NanoAILACasedocs
+replays at 28.8 instead of 27.1 (mean 60.5 instead of 60.4). 129 of the
+responses that task uses were cached at 13:07 UTC, 14 minutes after its live
+pass (12:52–12:53). A failed request is not cached, so the live pass ran
+without them, and the bundle holds the answers a later run received.

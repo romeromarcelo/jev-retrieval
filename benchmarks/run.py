@@ -9,13 +9,19 @@ ids by filename stem. Scoring lives in score.py.
 Exit-code contract honored from jevr: 0 = matches, 1 = no matches (recorded
 as an empty ranking), 2 = error (aborts the run).
 
-Usage: python3 run.py <queries.jsonl> <qrels.tsv> <corpus_dir> <out.jsonl>
+Runs against the BEIR response cache, cache/beir/; harness.py describes the
+--offline replay and the --spotcheck mode.
+
+Usage: python3 run.py [--offline] <queries.jsonl> <qrels.tsv> <corpus_dir> <out.jsonl>
+       python3 run.py --spotcheck <seed> <n> <queries.jsonl> <qrels.tsv> <corpus_dir>
 """
 
 import json
-import subprocess
 import sys
+from functools import partial
 from pathlib import Path
+
+import harness
 
 
 def qrels_query_ids(qrels_tsv: Path) -> set:
@@ -25,39 +31,32 @@ def qrels_query_ids(qrels_tsv: Path) -> set:
         return {line.split('\t')[0] for line in fh if line.strip()}
 
 
-def rank(query: str, corpus_dir: str) -> list:
-    """Top-10 doc ids for one query, in jevr's final order."""
-    proc = subprocess.run(
-        ['jevr', query, corpus_dir, '--threshold', '0', '--top-k', '10', '--json'],
-        capture_output=True,
-        text=True,
-        check=False,  # exit codes 1 (no matches) and 2 (error) handled below
-    )
-    if proc.returncode == 1:
-        return []
-    if proc.returncode != 0:
-        sys.exit(f'jevr failed (exit {proc.returncode}): {proc.stderr.strip()}')
-    return [Path(r['file']).stem for r in json.loads(proc.stdout)]
-
-
 def main() -> None:
-    if len(sys.argv) != 5:
-        sys.exit(
-            f'usage: {sys.argv[0]} <queries.jsonl> <qrels.tsv> <corpus_dir> <out.jsonl>'
-        )
-    queries_path, qrels_path, corpus_dir, out_path = sys.argv[1:5]
+    offline, spot, args = harness.mode(sys.argv[1:])
+    if len(args) != (3 if spot else 4):
+        sys.exit(__doc__.split('Usage: ')[1])
+    queries_path, qrels_path, corpus_dir = args[:3]
 
     judged = qrels_query_ids(Path(qrels_path))
     with Path(queries_path).open(encoding='utf-8') as fh:
         queries = [json.loads(line) for line in fh if line.strip()]
     queries = [q for q in queries if q['_id'] in judged]
+    jobs = [
+        partial(
+            harness.jevr,
+            [q['text'], corpus_dir, '--threshold', '0', '--top-k', '10', '--json'],
+        )
+        for q in queries
+    ]
+    if spot:
+        harness.spotcheck('beir', jobs, *spot)
+        return
 
-    with Path(out_path).open('w', encoding='utf-8') as out:
-        for i, q in enumerate(queries, 1):
-            ranking = rank(q['text'], corpus_dir)
+    rankings = harness.run('beir', jobs, offline, workers=4)
+    with Path(args[3]).open('w', encoding='utf-8') as out:
+        for q, results in zip(queries, rankings):
+            ranking = [Path(r['file']).stem for r in results]
             out.write(json.dumps({'query_id': q['_id'], 'ranking': ranking}) + '\n')
-            if i % 25 == 0 or i == len(queries):
-                print(f'{i}/{len(queries)} queries done')
 
 
 if __name__ == '__main__':
