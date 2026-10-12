@@ -8,6 +8,28 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-12
+
+### Added
+
+- `JEVR_OFFLINE=1` makes a request missing from the response cache fail
+  instead of reaching the network, so a replay never bills; `JEVR_DEBUG=1`
+  still counts the miss.
+- Benchmark harnesses for SWE-bench Lite (`benchmarks/swebench.py`) and
+  HAKARI-Bench NanoRTEB (`benchmarks/rteb.py`), next to the BEIR `run.py`.
+  Each keeps its own response cache in `benchmarks/cache/` and reports
+  billed requests and warnings. `--offline` replays a published bundle, or
+  prices an experiment before it runs; `--spotcheck` re-sends a seeded random
+  sample live and compares every answer with the bundle's.
+- Replay bundles for all three benchmarks, attached to this release with
+  their SHA-256 checksums (benchmarks/README.md, docs/BENCHMARKS.md §11).
+
+### Changed
+
+- SWE-bench Lite re-measured on the current pipeline, now replayable:
+  Recall@1 0.720, any-gold@10 0.900, all-gold@10 0.900, MRR 0.810 (2026-09-20:
+  0.760 / 0.900 / 0.900 / 0.827).
+
 ## [0.2.1] - 2026-10-11
 
 ### Changed
@@ -87,7 +109,8 @@ First public release, published to [crates.io](https://crates.io/crates/jevr).
   record (`docs/BENCHMARKS.md`): 0.900 any-gold@10 on SWE-bench Lite file
   localization, nDCG@10 0.778 on BEIR SciFact and 0.363 on NFCorpus.
 
-[Unreleased]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/romeromarcelo/jev-retrieval/compare/v0.1.0...v0.1.1
