@@ -38,10 +38,13 @@ free; Stages 2–3 call the TypeSafe Jev API.
   path tokens with the content — file paths are strong signals for
   file-level localization (arXiv:2607.11046).
 - **Union** (`candidates.rs`): the top `candidate_cap` files per variant per
-  lane are unioned with `git grep -il` hits — zero-cost insurance for
+  lane are unioned with `git grep -il` hits — insurance for
   literal-vocabulary queries whose exact terms appear verbatim but rank
-  poorly under BM25. Order is irrelevant: Stage 2 re-scores every candidate
-  independently. Nothing is persisted; the index is rebuilt per invocation
+  poorly under BM25. The grep is free, but every hit is verified: in a
+  pasted bug report, comma-split code fragments such as `]` match most
+  files, which made up most of SWE-bench's requests (BENCHMARKS.md §12;
+  `--no-grep-union` turns the union off). Order is irrelevant: Stage 2
+  re-scores every candidate independently. Nothing is persisted; the index is rebuilt per invocation
   (~0.2 s for a 4k-file repo: files are scanned on every core, postings are
   kept only for query terms, and `git grep` runs in the background).
   `--candidates <file>` bypasses the whole stage.
@@ -196,7 +199,8 @@ them without re-running the benchmark evidence
 - **SWE-bench Lite (50-sample) is the code gate** (0.720/0.900 Recall@1 /
   any-gold@10 on 2026-10-12, replayable from its bundle;
   `benchmarks/swebench.py`); score-affecting changes need a same-day A/B
-  there. Small hand-labeled benchmarks flip ±0.3 near the
+  there over several draws, since single draws span Recall@1 0.70–0.76
+  (BENCHMARKS.md §12). Small hand-labeled benchmarks flip ±0.3 near the
   threshold — never accept or reject a change on one draw.
 
 Verification commands:

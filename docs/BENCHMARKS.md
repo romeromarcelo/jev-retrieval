@@ -48,13 +48,14 @@ the merged patch. Harness: [`benchmarks/swebench.py`](../benchmarks/swebench.py)
 Measured 2026-10-12 with the 0.2.1 pipeline (32,847 billed requests, ~690
 per instance) and replayable offline (§11). The first measurement, on
 2026-09-20, predates the document lane and the response cache: two runs that
-day both gave 0.760 / 0.900 / 0.900 / 0.827. Two fewer instances now rank
-their gold file first; pipeline changes and draw noise are not separated.
+day both gave 0.760 / 0.900 / 0.900 / 0.827. The code lane sent
+byte-identical requests in both measurements; the difference is Jev's
+draw-to-draw noise, and eight fresh draws span Recall@1 0.70–0.76 (§12).
 The checkouts sit under `benchmarks/repos/`, where this repository's
 `.gitignore` applies: its `debug/` rule hides two Django test templates from
 the document lane, which the scores do not use.
 This sample is the regression gate for score-affecting changes, run as a
-same-day A/B. Caveats: one 50-instance sample, Python-only repos, plausibly
+same-day A/B over several draws (§12). Caveats: one 50-instance sample, Python-only repos, plausibly
 in every model's training data.
 
 ### Loc-Bench V1, Feature Request category (30-instance sample)
@@ -163,6 +164,10 @@ re-proposing any of them.
   (P(relevant | score ≥ 0.9) = 0.54 on NFCorpus grade-0 docs) contaminates in
   proportion, the 100-option rerank request fails outright, and cost is 3.3×.
 - **Rerank draw averaging** (4× Choice per request): ±0.004, within noise.
+- **Code-lane ordering and rerank context** (ordering code by verification
+  score or by the document lane's fusion; showing the rerank each file's
+  best verification window): score order wins on bug reports but loses on
+  concept queries, and no variant won both (§12).
 - **Multi-round listwise refinement** (sliding windows, disjoint tournaments,
   pairwise duels, gated deep insertion, permutation-shuffled draws — the
   mechanisms behind the NFCorpus anchor systems): every mechanism measured
@@ -568,3 +573,109 @@ published numbers offline"). The bundles are attached to the v0.2.2 release.
 - **Limits.** The replay proves that code, requests and scoring line up; the
   spot-check samples whether the responses are Jev's, and only while
   `jev-1.13.0` is served.
+
+## 12. SWE-bench draw noise and code-lane ordering
+
+Measured 2026-10-12 for about 74 M billed input tokens (~$3.2), to explain
+why the §2 re-measurement scored below the 2026-09-20 runs and to test the
+code-lane changes that explanation suggested. No pipeline change was
+adopted.
+
+### Why the re-measurement scored lower
+
+- **The requests did not change.** The code lane's questions, state keys and
+  rerank body are byte-identical between the 2026-09-20 pipeline and 0.2.2
+  (the parity of §6), and the 2026-10-12 run replays with 0 requests
+  missing, so no request failed either.
+- **Single draws spread widely.** Eight fresh verification draws, each
+  reranked:
+
+  | Metric | Range over 8 draws | Mean |
+  |---|---|---|
+  | Recall@1 | 0.70–0.76 | 0.728 |
+  | any-gold@10 | 0.88–0.90 | 0.898 |
+  | MRR | 0.787–0.830 | 0.808 |
+
+  Both 2026-09-20 runs (0.760 / 0.827) and the 2026-10-12 run
+  (0.720 / 0.810) lie inside these ranges.
+- **Two of its rank-2 results were near coin flips.** With the 2026-10-12
+  verification answers held fixed, eight rerank draws gave Recall@1
+  0.72–0.74. In sphinx-7686 the published rerank split 0.55 / 0.45 and put
+  the gold file second, which eight redraws did only once. In django-12856
+  the gold file scored 0.895, just under the 0.90 gate, so the lane fell
+  back to its three best guesses and the rerank put another file first.
+
+**Method.** Each draw re-verifies only the files that can change a
+decision: per instance, the code files that scored ≥ 0.80 in the published
+run plus its five best, which cover the three-file fallback (252 files,
+about 760 verification requests per draw instead of ~34k). They run
+through `--candidates` against a fresh cache per draw. Replayed against the
+bundle, this restricted pipeline reproduces all 50 published gold ranks
+with 0 requests missing. A file below 0.80 would have to move more than
+0.10 to cross the gate, twice Jev's ±0.05 noise, and any-gold@10 can only
+be under-counted. The eight draws billed 6,856 requests (40.4 M tokens).
+
+### Code-lane ordering: tested, not adopted
+
+Two changes were tested: ordering code by verification score, and giving
+the rerank more of each file than its 25-line head. They ran on the eight
+draws above and on the 12 concept queries of §4 (cross-market-arb at
+`163db00`), in six draws: one full code-lane draw, then five restricted as
+above (4,667 requests, 30.6 M tokens). Orderings were compared offline on
+the cached draws, so only new rerank contexts billed anything.
+
+| Code-lane ordering | SWE-bench Recall@1 | SWE-bench MRR | Concept P@1 | Concept nDCG@10 |
+|---|---|---|---|---|
+| Rerank over 25-line heads (shipped) | 0.728 | 0.808 | **0.917** | **0.731** |
+| Verification score | **0.760** | **0.826** | 0.889 | 0.697 |
+| score + 0.1 × rank probability | 0.733 | 0.810 | 0.903 | 0.703 |
+| score + 1.0 × rank probability | 0.733 | 0.811 | 0.917 | 0.723 |
+| Rerank over head + best window | 0.740 | 0.810 | 0.819 | 0.703 |
+
+- **Score order wins on bug reports and loses on concept queries.** It beat
+  the shipped order on all 8 SWE-bench draws (+1 to +3 instances each) and
+  lost nDCG@10 on all 6 concept draws (−0.025 to −0.047). The fusion that
+  orders documents (§4) lands between the two on both. Concept queries are
+  the shape the tool targets, so the code lane keeps pure rerank order.
+- **Richer rerank context did not help.** Adding each file's best-scoring
+  verification window to its head made the code rerank almost
+  deterministic, but not more accurate: within noise on SWE-bench (paired
+  Recall@1 difference +3, −1, +1, +2 and four zeros) and worse on every
+  concept draw. The window alone, with verification held fixed, scored
+  0.72 in 15 of 16 rerank draws, against 0.72–0.74 for heads.
+- **Ties do not matter.** Score order breaks ties by rank probability;
+  breaking them by path instead changed Recall@1 by nothing (4 of 153
+  printed multi-file lists tie at the top).
+
+### `git grep` floods: a cost-recall trade-off, unchanged
+
+The union splits the stopword-stripped query on commas and greps each
+piece. Bug reports contain code, so pieces such as `]`, `0` or `(x` match
+nearly every file, and every hit is verified. Replayed offline against the
+bundle (reranks whose kept set changed fall back to score order):
+
+| Grep pieces admitted | Requests | Gold among candidates | Recall@1 | any-gold@10 | MRR |
+|---|---|---|---|---|---|
+| All (shipped) | 34,463 | 48 / 50 | 0.720 | 0.900 | 0.810 |
+| Matching ≤ 300 files | 13,253 | 45 | 0.680 | 0.840 | 0.760 |
+| Matching ≤ 30 files (`candidate_cap`) | 8,595 | 44 | 0.680 | 0.820 | 0.750 |
+| None (`--no-grep-union`) | 7,872 | 44 | 0.680 | 0.820 | 0.750 |
+
+The floods are brute force: they verify most of the repository and find 4
+gold files that BM25's top 30 misses (django-12125, sympy-12419, -15346 and
+-21055), for about 4× the requests. The 12 concept queries contain no
+commas, and the union added no candidates to any of them. The default
+stays; `--no-grep-union` caps the cost of searching with a pasted bug
+report.
+
+### Consequence for the gate
+
+A single SWE-bench draw cannot resolve Recall@1 differences up to 0.06, and
+any-gold@10 moves by up to 0.02. Compare arms over several draws, and share
+the verification draws when an arm changes only the rerank or the
+ordering: it then bills only its own reranks, and a paired difference that
+keeps its sign across draws is evidence where one draw is not. By this
+measure the §5 packing A/B's Recall@1 change (0.760 → 0.720) is within
+draw noise, but its any-gold@10 (0.860) falls below the eight-draw range;
+packing also saves no money under per-token billing, so that rejection
+stands.

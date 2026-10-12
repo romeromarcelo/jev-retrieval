@@ -3,8 +3,9 @@
 //! Why a union across variants: each query variant contributes its own BM25
 //! top-`cap` list; Stage 2 re-scores every candidate independently, so order
 //! is irrelevant and deduplication is all that matters. Why a git-grep union
-//! on top: zero-cost insurance for literal-vocabulary queries whose exact
-//! terms appear verbatim in the code but rank poorly under BM25 alone.
+//! on top: insurance for literal-vocabulary queries whose exact terms appear
+//! verbatim in the code but rank poorly under BM25 alone. The grep is free;
+//! every hit it adds is a verified, billed candidate.
 
 use crate::walk::{CODE_EXTENSIONS, DOC_EXTENSIONS};
 use std::collections::BTreeSet;
