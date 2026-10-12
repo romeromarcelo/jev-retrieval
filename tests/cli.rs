@@ -1,8 +1,8 @@
-//! CLI contract tests: argument validation and error rendering.
+//! CLI contract tests: argument validation, error rendering and offline replay.
 //!
-//! Both cases fail before any request is built, so the binary is exercised
-//! without network or TYPESAFE_API_KEY. They pin the exit codes and stderr
-//! wording that agents parse.
+//! No case reaches the network: two fail before any request is built, and the
+//! offline case fails its one request at the cache. They pin the exit codes
+//! and stderr wording that agents and the benchmark harness parse.
 
 use std::process::Command;
 
@@ -33,6 +33,34 @@ fn missing_path_reports_the_path_once_with_exit_2() {
     );
     assert!(
         stderr.contains("no such file or directory"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn offline_cache_miss_is_counted_and_never_sent() {
+    let dir = std::env::temp_dir().join(format!("jevr-offline-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("corpus")).unwrap();
+    std::fs::write(dir.join("corpus/a.md"), "The user is greeted by name.\n").unwrap();
+    let out = bin()
+        .args(["where is the user greeted?", "corpus"])
+        .current_dir(&dir)
+        .env("TYPESAFE_API_KEY", "offline")
+        .env("JEVR_OFFLINE", "1")
+        .env("JEVR_DEBUG", "1")
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .output()
+        .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "stderr: {stderr}");
+    assert_eq!(
+        stderr.matches("jevr: debug: jev request").count(),
+        1,
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("not in the response cache"),
         "stderr: {stderr}"
     );
 }

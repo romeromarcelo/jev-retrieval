@@ -92,6 +92,12 @@ impl JevClient {
         if std::env::var_os("JEVR_DEBUG").is_some() {
             eprintln!("jevr: debug: jev request");
         }
+        // Offline replay: a miss fails here instead of reaching the network, so
+        // replaying a benchmark cache is free and the debug line above counts
+        // what a live run would bill.
+        if std::env::var_os("JEVR_OFFLINE").is_some() {
+            bail!("not in the response cache (JEVR_OFFLINE is set)");
+        }
         let mut last = String::new();
         for retry in 0..=MAX_RETRIES {
             match self
