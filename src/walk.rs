@@ -90,7 +90,8 @@ pub fn is_skipped_dir(path: &Path) -> bool {
 /// subsystem-membership question set rather than the document coverage one.
 pub const CODE_EXTENSIONS: &[&str] = &[
     "rs", "js", "jsx", "ts", "tsx", "py", "go", "java", "kt", "kts", "rb", "php", "c", "h", "cpp",
-    "hpp", "cs", "swift", "scala", "sh", "sql", "yaml", "yml", "json", "toml",
+    "hpp", "cs", "swift", "scala", "sh", "sql", "yaml", "yml", "json", "toml", "nix", "lua", "vim",
+    "el", "zsh", "fish", "nu", "zig", "nim", "ml", "mli", "ex", "exs", "gleam", "hs",
 ];
 
 /// Prose/document extensions: files whose relevance is judged by document
@@ -99,6 +100,7 @@ pub const CODE_EXTENSIONS: &[&str] = &[
 /// them as unreadable anyway.
 pub const DOC_EXTENSIONS: &[&str] = &[
     "adoc", "asciidoc", "htm", "html", "markdown", "md", "mdx", "org", "rst", "tex", "text", "txt",
+    "qmd",
 ];
 
 /// Whether `extension` is one of [`CODE_EXTENSIONS`].
